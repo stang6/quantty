@@ -22,7 +22,8 @@ from ib_insync import IB, util, Contract, Stock
 # core logic modules
 from core_logic.module_A_filter import check_long_term_filter
 from core_logic.module_B_signals import calculate_indicators, generate_buy_signal
-from core_logic.module_C_execution import manage_limit_order_lifecycle, check_for_mandatory_liquidation
+#from core_logic.module_C_execution import manage_limit_order_lifecycle, check_for_mandatory_liquidation
+from core_logic import module_C_execution # Update: use the same way to import Module C
 from core_logic import module_D_execution # NEW: Import Module D
 from data.historical_data import request_historical_data_ibinsync, load_tickers_from_file
 
@@ -123,7 +124,7 @@ def run_trading_system(ib: IB):
 
     while ib.isConnected():
         # 1. Check for mandatory liquidation (Weekends/Holidays)
-        check_for_mandatory_liquidation(ib)
+        module_C_execution.check_for_mandatory_liquidation(ib)
 
         # 2. Re-run Module A/B to refresh long-term signals and trend status (for continuous management)
         long_term_signals, approved_tickers = run_module_ab_analysis(ib, contracts_to_monitor)

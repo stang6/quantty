@@ -7,6 +7,7 @@ import pandas as pd
 from typing import List
 
 from ib_insync import IB, Contract, util
+import pandas_ta as ta
 from config.parameters import TSLA_TICKER, TSLA_SHORT_TERM_RSI_OVERSOLD, TSLA_SHORT_TERM_RSI_PERIOD
 
 # --- Helper Functions ---
@@ -19,7 +20,7 @@ def calculate_min5_rsi(data_df: pd.DataFrame) -> pd.DataFrame:
     # Check if we have enough data points (RSI period requires sufficient bars)
     if len(data_df) > TSLA_SHORT_TERM_RSI_PERIOD:
         # Use ib_insync utility for RSI calculation
-        data_df['RSI'] = util.rsi(data_df.close, TSLA_SHORT_TERM_RSI_PERIOD)
+        data_df['RSI'] = ta.rsi(data_df.close, length=TSLA_SHORT_TERM_RSI_PERIOD)
     else:
         # Fill with NaN if not enough data to calculate
         data_df['RSI'] = float('nan')
