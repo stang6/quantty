@@ -54,16 +54,9 @@ def calculate_indicators(data_df):
 
     return data_df
 
+
 def generate_buy_signal(data_df, is_trend_up):
     """Generates the final buy signal based on multi-factor confirmation."""
-
-    # --- START OF DUMMY TEST LOGIC (TO BE REMOVED AFTER TESTING) ---
-    # This logic forces a BUY signal for all tickers that passed the trend filter (Module A).
-    if is_trend_up:
-        logging.warning("TEST OVERRIDE: Forcing BUY signal for current ticker (to test Module C execution).")
-        return True
-    # --- END OF DUMMY TEST LOGIC ---
-
 
     if not is_trend_up or data_df.empty:
         return False
