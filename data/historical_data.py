@@ -40,7 +40,7 @@ def create_stock_contract(ticker: str) -> Contract:
     # ib_insync simplifies contract creation
     return Stock(ticker, 'SMART', 'USD')
 
-def request_historical_data_ibinsync(ib: IB, ticker: str, duration_str: str = "730 D") -> pd.DataFrame:
+def request_historical_data_ibinsync(ib: IB, ticker: str, duration_str: str = "2 Y") -> pd.DataFrame:
     """
     Requests historical daily bar data via ib_insync.
 

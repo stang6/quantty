@@ -64,9 +64,15 @@ def run_trading_system(ib: IB):
             logging.error(f"Data retrieval failed or returned empty for {ticker}. Skipping.")
             continue
         
-        # Data saving logic (Assumed to be here, though removed for brevity in previous displays)
-        # data_df.to_csv(os.path.join(DATA_DIR, f"{ticker}_1day.csv"))
-        # logging.info(f"Historical data saved to historical_data/{ticker}_1day.csv")
+        # Data saving logic (FIX: Re-enable and ensure correct path)
+        file_path = os.path.join(DATA_DIR, f"{ticker}_1day.csv")
+        try:
+            data_df.to_csv(file_path, index=True) 
+            # In code comments, use English only; no Chinese.
+            logging.info(f"Historical data successfully saved to {file_path}") # Removed small symbols from print statements in code.
+        except Exception as e:
+            logging.error(f"Failed to save data for {ticker} to {file_path}: {e}")
+        # ----------------------------------------------------------------------
 
         # 4. Execute Module A (Trend filter)
         is_trend_up = check_long_term_filter(data_df)
