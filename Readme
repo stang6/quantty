@@ -1,2 +1,16 @@
-#To start IB Gateway
+#to start IB Gateway
 ~/Jts/ibgateway/1037/ibgateway &
+
+#cat all
+cat config/market_holidays.py
+cat config/parameters.py
+cat config/tickers.txt
+cat core_logic/module_A_filter.py
+cat core_logic/module_B_signals.py
+cat core_logic/module_C_execution.py
+cat core_logic/module_D_execution.py
+cat data/historical_data.py
+cat data/realtime_monitor.py
+cat main.py
+cat utils/system_logging.py
+
