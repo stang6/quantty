@@ -4,7 +4,9 @@
 
 import logging
 import pandas as pd
-from config.parameters import * from typing import List, Dict, Optional, Tuple
+
+from config.parameters import *
+from typing import List, Dict, Optional, Tuple
 import numpy as np
 
 # Helper function to check if a Pandas Series contains enough non-NaN data
