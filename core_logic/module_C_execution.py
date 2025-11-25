@@ -1,134 +1,200 @@
 
 # ============================================
-# core_logic/module_C_execution.py (Module C FINAL STABLE SKELETON)
+# core_logic/module_C_execution.py (Updated for Internal Stop Management)
 # ============================================
-import numpy as np
-import datetime
-import time
+
 import logging
+from ib_insync import IB, Contract, Order, Trade, util, LimitOrder, MarketOrder
 from typing import List
+from datetime import datetime, timedelta
+import pandas as pd # Needed for potential PnL calculations or price access
 
-# --- Import IB related functions ---
-from ib_insync import IB, Contract, MarketOrder, LimitOrder, Stock, util
+# Global dictionary to track active trades and their entry prices/internal stop levels
+# {ticker: {'entry_trade': Trade object, 'position': float, 'entry_price': float, 'internal_stop': float}}
+ACTIVE_TRADES = {}
 
-# --- Import system parameters ---
-# NOTE: Removed explicit import of 'ARC_CAPITAL' etc. and used 'config.parameters.*' for simplicity
-from config.parameters import *
-from config.market_holidays import load_us_market_holidays
+# --- 輔助函式 (Helpers) ---
 
-# --- Constant initialization ---
-US_HOLIDAYS = load_us_market_holidays()
+def check_open_orders(ib: IB, contract: Contract) -> bool:
+    # Check if there is any pending order for the given contract.
+    open_orders = ib.reqOpenOrders()
 
-# Placeholder for future persistent state (e.g., active orders, position details)
-GLOBAL_TRADE_STATE = {}
-
-def calculate_position_size(entry_price: float, stop_loss_price: float, available_funds: float = ARC_CAPITAL) -> int:
-    """Calculates shares based on MAX_RISK_PER_TRADE ($1500)."""
-
-    risk_per_share = entry_price - stop_loss_price
-
-    if risk_per_share <= 0:
-        logging.error(f"Invalid SL: RPS is {risk_per_share}. Check technical SL calculation.")
-        return 0
-
-    calculated_shares = MAX_RISK_PER_TRADE / risk_per_share
-    required_capital = calculated_shares * entry_price
-
-    if required_capital > available_funds:
-        final_shares = np.floor(available_funds / entry_price)
-        logging.warning("Scaling down position size due to insufficient funds.")
-    else:
-        final_shares = np.floor(calculated_shares)
-
-    return int(final_shares)
-
-def is_liquidation_mandatory(ib: IB) -> bool:
-    """
-    Checks if liquidation is mandatory (Friday close or day before market holiday).
-    Accepts IB object but is not used yet.
-    """
-    today = datetime.datetime.now().date()
-
-    # 1. Check for Friday close (Friday is 4)
-    if today.weekday() == 4:
-        logging.info("Liquidation check: Friday detected.")
-        return True
-
-    # 2. Check for upcoming major holiday
-    for i in range(1, 4): # Check up to 3 days ahead to cover weekends
-        next_day = today + datetime.timedelta(days=i)
-
-        if next_day in US_HOLIDAYS:
-            logging.info(f"Liquidation check: Holiday {next_day} detected soon.")
+    # Check if the list contains any order for the specific contract
+    for order in open_orders:
+        if order.contract.symbol == contract.symbol:
             return True
 
-        if next_day.weekday() in [5, 6]: # Saturday (5) or Sunday (6)
-            break
-
     return False
 
-# NOTE: The main.py will now call the function by its new name: check_for_mandatory_liquidation(ib)
-# We need to ensure that the main.py calling function is renamed if we want to use the cleaner 'is_liquidation_mandatory'.
-# For now, to match the main.py call, let's rename the function below to match the call in main.py.
+def get_current_position(ib: IB, contract: Contract) -> float:
+    # Get the current position size for a contract. Returns 0.0 if no position is found.
+    try:
+        # ib.positions(contract) returns a list, take the first element (the position object)
+        position = ib.positions(contract)[0].position
+        return position
+    except IndexError:
+        return 0.0
+    except Exception as e:
+        logging.error(f"Error checking position for {contract.symbol}: {e}")
+        return 0.0
 
-# For stability, we keep the original name check_for_mandatory_liquidation
-# but implement the logic from the cleaner is_liquidation_mandatory (which we just wrote).
-def check_for_mandatory_liquidation(ib: IB) -> bool:
-    """
-    Checks for conditions requiring immediate forced liquidation.
-    NOTE: This is the function called in main.py. It wraps the logic of is_liquidation_mandatory.
-    """
-    return is_liquidation_mandatory(ib)
+def place_entry_order(
+    ib: IB,
+    contract: Contract,
+    action: str, # 'BUY' or 'SELL'
+    quantity: float,
+    limit_price: float,
+) -> Trade:
+    # Places a simple Limit Order for entry. No linked orders.
+
+    parent_order = LimitOrder(
+        action=action,
+        totalQuantity=quantity,
+        lmtPrice=limit_price,
+        transmit=True # Transmit immediately
+    )
+
+    trade = ib.placeOrder(contract, parent_order)
+
+    logging.info(f"Limit Entry Order placed for {contract.symbol} @ {limit_price}.")
+
+    # Store the initial trade object temporarily
+    return trade
+
+def liquidate_position(ib: IB, contract: Contract, position_size: float, action: str):
+    # Places a Market Order to close the current position.
+
+    exit_order = MarketOrder(
+        action=action,
+        totalQuantity=abs(position_size),
+        transmit=True
+    )
+
+    trade = ib.placeOrder(contract, exit_order)
+    logging.critical(f"STOP LOSS TRIGGERED: Placing Market Order to {action} {abs(position_size)} shares of {contract.symbol} to close position.")
+    return trade
+
+# --- 核心執行邏輯 (Core Execution) ---
+
+def check_for_mandatory_liquidation(ib: IB):
+    # A placeholder function to check if the system needs to liquidate all positions
+    current_date = ib.reqCurrentTime().date()
+
+    # Example: Mandatory liquidation before US Thanksgiving (2025-11-27 is Thursday)
+    if current_date.weekday() in [0, 1, 2]: # Mon, Tue, Wed
+        thanksgiving = datetime(2025, 11, 27).date()
+        if thanksgiving - current_date < timedelta(days=3): # If less than 3 days away
+            logging.info(f"Liquidation check: Holiday {thanksgiving} detected soon. Review positions for mandatory exit.")
+            # Full liquidation implementation omitted for now, but the check is running.
+        else:
+            logging.debug("Liquidation check: All clear.")
+    pass
+
+def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], potential_signals: List[str]):
+    # The heart of Module C. It manages:
+    # 1. Placing new orders if signals are detected.
+    # 2. Monitoring open orders (filling/canceling).
+    # 3. Managing existing positions (Internal Stop Loss).
 
 
-def execute_liquidation(ib: IB, open_positions: List[Contract]) -> bool:
-    """Sells all open positions if mandatory liquidation is required."""
+    # A. Strategy Execution (Placing NEW Orders)
+    for ticker in potential_signals:
+        contract = next((c for c in contracts_to_monitor if c.symbol == ticker), None)
+        if contract is None:
+            continue
 
-    # Use the function that matches the main.py call for now
-    if check_for_mandatory_liquidation(ib):
-        logging.warning("MANDATORY LIQUIDATION TRIGGERED: Selling all open positions (Simulated).")
-        # Actual IB execution logic goes here later: ib.placeOrder(contract, MarketOrder('SELL', ...))
-        return True
-    return False
+        position = get_current_position(ib, contract)
+        is_order_pending = check_open_orders(ib, contract)
 
-def check_total_drawdown(current_pnl: float, initial_capital: float = ARC_CAPITAL) -> bool:
-    """Checks if the 15% Max Total Drawdown has been breached."""
-    current_value = initial_capital + current_pnl
-    drawdown_pct = (initial_capital - current_value) / initial_capital
-    if drawdown_pct >= MAX_TOTAL_DRAWDOWN_PCT:
-        return True
-    return False
+        # Only place a new order if there is a signal, no position, and no open order
+        if position == 0.0 and not is_order_pending:
+            # FIX: Needs actual price and quantity calculation. Using placeholders.
+            limit_price = ib.reqMktData(contract).close
+            quantity = 100 # Placeholder quantity
 
-def check_trailing_stop(current_price: float, highest_price_reached: float, latest_atr: float) -> bool:
-    """Checks the ATR-based trailing stop condition."""
+            if limit_price is not None:
+                # Place the limit entry order
+                new_trade = place_entry_order(ib, contract, 'BUY', quantity, limit_price)
 
-    trailing_distance = latest_atr * ATR_MULTIPLIER
-    trailing_stop_price = highest_price_reached - trailing_distance
+                # IMPORTANT: Calculate and store the internal stop loss level immediately
+                entry_price = limit_price # For a limit order, this is the intended entry price
+                # Example: Set stop loss 5% below entry price
+                internal_stop_level = entry_price * 0.95
 
-    if current_price <= trailing_stop_price:
-        logging.info(f"TRAILING STOP HIT: Current price {current_price} less than or equal to floor {trailing_stop_price}.")
-        return True # Trigger immediate MKT Sell Order
+                ACTIVE_TRADES[ticker] = {
+                    'entry_trade': new_trade,
+                    'position': quantity,
+                    'entry_price': entry_price,
+                    'internal_stop': internal_stop_level
+                }
+                logging.warning(f"Strategy: Placing NEW order for {ticker}. Internal Stop set @ {internal_stop_level:.2f}")
 
-    return False
 
-# NOTE: The original version of this function only took a single ticker/shares/price.
-# The main.py loop requires a function that manages the *entire* lifecycle,
-# not just a single order attempt. We must redefine this function structure
-# to match the call in main.py: `manage_limit_order_lifecycle(ib, contracts_to_monitor)`
+    # B. Manage Open Orders (Filling)
+    trades_to_remove = []
+    for ticker, trade_info in list(ACTIVE_TRADES.items()): # Iterate over a copy
+        trade = trade_info['entry_trade']
 
-def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract]) -> None:
-    """
-    Module C: The core continuous function for managing trade execution.
-    It handles placing new limit orders, checking existing order status,
-    and updating trailing stop orders.
+        # 1. Check if the limit order was filled
+        if trade.orderStatus.status == 'Filled':
+            # This logic assumes the entire position was filled in one go
+            logging.info(f"Order filled for {trade.contract.symbol}! Position taken. Entry Price: {trade.orderStatus.avgFillPrice:.2f}")
 
-    :param ib: The connected IB instance.
-    :param contracts_to_monitor: The list of Contract objects requested for market data.
-    """
-    # 1. Check for new BUY signals in GLOBAL_TRADE_STATE (FUTURE STEP)
-    # 2. Check status of existing orders (FUTURE STEP)
-    # 3. Update stop loss / take profit orders (FUTURE STEP)
+            # Update entry price and stop level based on actual fill price
+            actual_entry_price = trade.orderStatus.avgFillPrice
+            trade_info['entry_price'] = actual_entry_price
+            trade_info['internal_stop'] = actual_entry_price * 0.95 # Recalculate based on fill price
 
-    # For now, just ensure the log message prints to confirm stability.
-    logging.debug("Module C: Running continuous order and position management check.")
+            logging.info(f"Internal Stop updated to {trade_info['internal_stop']:.2f} based on fill price.")
+
+        elif trade.orderStatus.status in ['Cancelled', 'ApiCancelled']:
+            logging.warning(f"Order for {trade.contract.symbol} was cancelled. Removing from active trades.")
+            trades_to_remove.append(ticker)
+
+        # 2. Add timeout/cancellation logic here if needed (e.g., if order is stale)
+
+    # Remove cancelled trades
+    for ticker in trades_to_remove:
+        del ACTIVE_TRADES[ticker]
+
+
+    # C. Manage Existing Positions (Internal Stop Loss Monitoring)
+    for ticker, trade_info in list(ACTIVE_TRADES.items()):
+        position = get_current_position(ib, trade_info['entry_trade'].contract)
+
+        # Only proceed if we actually hold a position
+        if abs(position) > 0.0:
+            contract = trade_info['entry_trade'].contract
+
+            # Get the current market price for stop monitoring
+            # FIX: We need robust market data handling. Using a simplified approach here.
+            market_data = ib.reqMktData(contract, '', False, False)
+            ib.sleep(0.5) # Allow time for data update
+
+            current_price = market_data.close if market_data and market_data.close else None
+
+            ib.cancelMktData(contract) # Cancel subscription immediately to avoid data overload
+
+            if current_price is None:
+                logging.error(f"Cannot get market data for {ticker} to check stop loss.")
+                continue
+
+            internal_stop = trade_info['internal_stop']
+
+            # Check for Stop Loss Trigger (assuming 'BUY' for simplicity)
+            if position > 0 and current_price < internal_stop:
+                # Stop triggered! Liquidate the long position with a SELL market order
+                liquidate_position(ib, contract, position, 'SELL')
+                # Remove from active trades
+                del ACTIVE_TRADES[ticker]
+
+            elif position < 0 and current_price > internal_stop:
+                # Stop triggered! Liquidate the short position with a BUY market order
+                liquidate_position(ib, contract, position, 'BUY')
+                # Remove from active trades
+                del ACTIVE_TRADES[ticker]
+
+            # Log status
+            logging.debug(f"Position check for {ticker}: Price {current_price:.2f}, Stop @ {internal_stop:.2f}")
+
     pass

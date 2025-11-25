@@ -1,5 +1,5 @@
 # ============================================
-# main.py 
+# main.py (Updated to pass signals to continuous loop)
 # ============================================
 
 import os
@@ -18,9 +18,35 @@ from ib_insync import IB, util, Contract, Stock
 
 # core logic modules
 from core_logic.module_A_filter import check_long_term_filter
-from core_logic.module_B_signals import calculate_indicators, generate_buy_signal 
-from core_logic.module_C_execution import manage_limit_order_lifecycle, check_for_mandatory_liquidation
-from data.historical_data import request_historical_data_ibinsync, load_tickers_from_file # Added load_tickers_from_file
+from core_logic.module_B_signals import calculate_indicators, generate_buy_signal
+# Updated import to reflect Module C changes:
+from core_logic.module_C_execution import manage_limit_order_lifecycle, check_for_mandatory_liquidation 
+from data.historical_data import request_historical_data_ibinsync, load_tickers_from_file
+
+def save_historical_data_to_csv(data_df: pd.DataFrame, ticker: str):
+    # Saves the historical DataFrame to a CSV file in the designated directory.
+    # We define this helper function inside main.py's scope for use in the loop.
+    import pandas as pd
+    
+    if data_df.empty:
+        logging.warning(f"Attempted to save empty DataFrame for {ticker}. Skipping save.")
+        return
+
+    # Assuming 'historical_data' is a subdirectory relative to main.py
+    HISTORICAL_DATA_DIR = DATA_DIR 
+    os.makedirs(HISTORICAL_DATA_DIR, exist_ok=True)
+    file_path = os.path.join(HISTORICAL_DATA_DIR, f"{ticker}_1day.csv")
+
+    try:
+        data_df.to_csv(file_path, index=True) 
+        # In code comments, use English only; no Chinese.
+        logging.info(f"Historical data successfully saved to {file_path}")
+    except Exception as e:
+        logging.error(f"Failed to save data for {ticker} to {file_path}: {e}")
+        
+# Import pandas for the save helper
+import pandas as pd
+
 
 def run_trading_system(ib: IB):
 
@@ -48,8 +74,8 @@ def run_trading_system(ib: IB):
     logging.info("Starting historical data requests for Module A/B analysis (2 years of daily bars)...")
 
     # This list will store contracts that generate buy signals
-    potential_signals = [] 
-    
+    potential_signals = []
+
     # List to hold all Contract objects for live monitoring
     contracts_to_monitor = []
 
@@ -63,16 +89,10 @@ def run_trading_system(ib: IB):
         if data_df.empty:
             logging.error(f"Data retrieval failed or returned empty for {ticker}. Skipping.")
             continue
-        
+
         # Data saving logic (FIX: Re-enable and ensure correct path)
-        file_path = os.path.join(DATA_DIR, f"{ticker}_1day.csv")
-        try:
-            data_df.to_csv(file_path, index=True) 
-            # In code comments, use English only; no Chinese.
-            logging.info(f"Historical data successfully saved to {file_path}") # Removed small symbols from print statements in code.
-        except Exception as e:
-            logging.error(f"Failed to save data for {ticker} to {file_path}: {e}")
-        # ----------------------------------------------------------------------
+        save_historical_data_to_csv(data_df, ticker)
+
 
         # 4. Execute Module A (Trend filter)
         is_trend_up = check_long_term_filter(data_df)
@@ -85,7 +105,7 @@ def run_trading_system(ib: IB):
 
             if generate_buy_signal(data_df, is_trend_up):
                 # We append the ticker for now, but in Module C we'll use the Contract object
-                potential_signals.append(ticker) 
+                potential_signals.append(ticker)
                 logging.warning(f"Module B SIGNAL: BUY signal generated for {ticker}.")
             else:
                 logging.info(f"Module B NO SIGNAL: {ticker} passed trend but no buy signal detected.")
@@ -97,7 +117,7 @@ def run_trading_system(ib: IB):
     # --- Module C: Initial Execution Logic ---
     if potential_signals:
         logging.warning(f"Strategy signals detected for: {potential_signals}. Preparing for order execution.")
-        pass 
+        # NOTE: New order execution happens inside the continuous loop below.
     # -----------------------------------------
 
 
@@ -113,16 +133,17 @@ def run_trading_system(ib: IB):
         logging.info(f"Requesting live market data for {len(contracts_to_monitor)} contracts: {TICKERS_TO_TRADE}")
 
     while ib.isConnected():
-        
+
         # 1. Check for mandatory liquidation (Weekends/Holidays)
-        check_for_mandatory_liquidation(ib) 
+        check_for_mandatory_liquidation(ib)
 
         # 2. Continuous Order and Position Management (Module C Core)
         if contracts_to_monitor:
+            # FIX: Pass the potential_signals list to Module C for order placement
             # This function handles placing new orders, checking order status, and updating stop losses.
-            manage_limit_order_lifecycle(ib, contracts_to_monitor) 
+            manage_limit_order_lifecycle(ib, contracts_to_monitor, potential_signals)
             logging.debug("Module C: Running continuous order and position management check.")
-        
+
         # 3. System heartbeat and wait
         logging.debug("System heart beat: Checking open positions and market status.")
         ib.sleep(60) # Check every 60 seconds
