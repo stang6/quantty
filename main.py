@@ -166,9 +166,6 @@ class QuantDaemon:
         self.approved_tickers = []
         today = datetime.now().date()
 
-        # clear stale shared signals
-        module_E_dashboard.shared_state["signals"] = []
-
         for c in self.contracts:
             ticker = c.symbol
             df = load_historical_data_from_csv(ticker)
@@ -217,7 +214,6 @@ class QuantDaemon:
 
                 if sig:
                     self.pending_signals[ticker] = sig
-                    module_E_dashboard.shared_state["signals"].append(sig)
 
         logging.warning(f"Daily Done: Approved={self.approved_tickers}, Pending={list(self.pending_signals)}")
 
@@ -235,7 +231,6 @@ class QuantDaemon:
         sig = module_D_execution.run_tsla_min5_analysis(self.ib, c)
         if sig:
             self.pending_signals[TSLA_TICKER] = sig
-            module_E_dashboard.shared_state["signals"].append(sig)
             logging.info(f"TSLA short-term signal added: {sig}")
 
     # ============================================
@@ -249,6 +244,57 @@ class QuantDaemon:
 
         for t in done:
             self.pending_signals.pop(t, None)
+
+        self.update_dashboard()
+
+
+    # ----------------------------------------------------
+    # DASHBOARD UPDATER
+    # ----------------------------------------------------
+    def update_dashboard(self):
+        # --- Open Orders ---
+        orders = self.ib.openOrders()
+        module_E_dashboard.shared_state["orders"] = [
+            {
+                "id": o.orderId,
+                "ticker": o.contract.symbol,
+                "action": o.order.action,
+                "qty": o.order.totalQuantity,
+                "type": o.order.orderType,
+                "limit": o.order.lmtPrice,
+                "status": self.ib.reqAllOpenOrders().get(o.orderId, "Unknown")
+            }
+            for o in orders
+        ]
+
+        # --- Positions ---
+        pos = self.ib.positions()
+        module_E_dashboard.shared_state["positions"] = [
+            {
+                "ticker": p.contract.symbol,
+                "qty": p.position,
+                "avg_cost": p.avgCost
+            }
+            for p in pos
+        ]
+
+        # --- Fills ---
+        fills = self.ib.fills()
+        module_E_dashboard.shared_state["fills"] = [
+            {
+                "ticker": f.contract.symbol,
+                "price": f.price,
+                "qty": f.execution.shares,
+                "time": f.time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            for f in fills
+        ]
+
+        # --- Pending Signals ---
+        module_E_dashboard.shared_state["signals"] = [
+            {"ticker": k, "signal": v} for k, v in self.pending_signals.items()
+        ]
+
 
 
 # ============================================
@@ -266,7 +312,6 @@ def main():
 
         daemon = QuantDaemon(ib)
         daemon.start()
-
         logging.info("Starting IB event loop…")
         ib.run()
 
