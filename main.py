@@ -7,6 +7,7 @@ import sys
 import logging
 import time
 from datetime import datetime, timedelta
+import pandas as pd
 
 # Data directory
 DATA_DIR = 'historical_data'
