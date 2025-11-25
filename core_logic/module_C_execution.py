@@ -1,16 +1,25 @@
+
 # ============================================
-# core_logic/module_C_execution.py
+# core_logic/module_C_execution.py (Updated with Capital Allocation)
 # ============================================
 
 import logging
 from ib_insync import IB, Contract, Order, Trade, util, LimitOrder, MarketOrder
-from typing import List
+from typing import List, Dict, Tuple
 from datetime import datetime, timedelta
-import pandas as pd # Needed for potential PnL calculations or price access
+import pandas as pd
+
+# NEW: Import capital parameters
+from config.parameters import (
+    ARC_CAPITAL,
+    LONG_TERM_CAPITAL_RATIO,
+    SHORT_TERM_CAPITAL_RATIO,
+    MAX_RISK_PER_TRADE
+)
 
 # Global dictionary to track active trades and their entry prices/internal stop levels
-# {ticker: {'entry_trade': Trade object, 'position': float, 'entry_price': float, 'internal_stop': float}}
-ACTIVE_TRADES = {}
+# {ticker: {'entry_trade': Trade object, 'position': float, 'entry_price': float, 'internal_stop': float, 'signal_type': str}}
+ACTIVE_TRADES: Dict[str, Dict] = {}
 
 # --- Helper Functions ---
 
@@ -27,18 +36,59 @@ def check_open_orders(ib: IB, contract: Contract) -> bool:
 
 def get_current_position(ib: IB, contract: Contract) -> float:
     # Get the current position size for a contract. Returns 0.0 if no position is found.
-    # FIX: Optimized to fetch all positions and manually filter, avoiding "can't be hashed" error.
     try:
         all_positions = ib.positions()
-        
+
         for pos in all_positions:
             if pos.contract.symbol == contract.symbol:
                 return pos.position
-        
+
         return 0.0
     except Exception as e:
         logging.error(f"Error checking position for {contract.symbol}: {e}")
         return 0.0
+
+# NEW FUNCTION: Calculate position quantity based on risk and capital allocation
+def calculate_order_quantity(ticker: str, signal_type: str, current_price: float, risk_per_share: float) -> float:
+    """
+    Calculates the order quantity based on capital allocation and risk per trade.
+    risk_per_share: The dollar amount of loss per share (Entry Price - Stop Price).
+    """
+    if risk_per_share <= 0:
+        logging.error(f"Cannot calculate quantity for {ticker}: Risk per share is zero or negative.")
+        return 0.0
+
+    # 1. Determine maximum available capital based on signal type
+    if signal_type == 'LONG':
+        capital_ratio = LONG_TERM_CAPITAL_RATIO
+    elif signal_type == 'SHORT':
+        capital_ratio = SHORT_TERM_CAPITAL_RATIO
+    else:
+        logging.error(f"Invalid signal type '{signal_type}' for {ticker}. Using LONG capital ratio.")
+        capital_ratio = LONG_TERM_CAPITAL_RATIO
+
+    # Total maximum capital allocated to this strategy group
+    max_group_capital = ARC_CAPITAL * capital_ratio
+
+    # 2. Determine Max Quantity based on MAX_RISK_PER_TRADE
+    # Max shares = MAX_RISK_PER_TRADE / Risk per share (Dollar amount of max loss)
+    max_quantity_by_risk = MAX_RISK_PER_TRADE / risk_per_share
+
+    # 3. Determine Max Quantity based on Max Group Capital (Ensuring we don't overspend)
+    # This check is less about risk and more about position size limits in this context.
+    # For now, we will focus on the risk-based calculation (2) unless you define
+    # a separate max position size relative to the allocated capital.
+
+    # Final Quantity: Use the risk-based quantity
+    final_quantity = int(max_quantity_by_risk)
+
+    if final_quantity <= 0:
+        logging.warning(f"Quantity for {ticker} is 0. Risk per share ({risk_per_share:.2f}) might be too low or too high.")
+        return 0.0
+
+    logging.info(f"Capital Allocation: {signal_type} group max capital: ${max_group_capital:.2f}. Calculated final quantity for {ticker}: {final_quantity} shares.")
+    return float(final_quantity)
+
 
 def place_entry_order(
     ib: IB,
@@ -81,10 +131,10 @@ def liquidate_position(ib: IB, contract: Contract, position_size: float, action:
 def check_for_mandatory_liquidation(ib: IB):
     # A placeholder function to check if the system needs to liquidate all positions
     current_date = ib.reqCurrentTime().date()
-
     # Example: Mandatory liquidation before US Thanksgiving (2025-11-27 is Thursday)
+    thanksgiving = datetime(2025, 11, 27).date()
+
     if current_date.weekday() in [0, 1, 2]: # Mon, Tue, Wed
-        thanksgiving = datetime(2025, 11, 27).date()
         if thanksgiving - current_date < timedelta(days=3): # If less than 3 days away
             logging.info(f"Liquidation check: Holiday {thanksgiving} detected soon. Review positions for mandatory exit.")
             # Full liquidation implementation omitted for now, but the check is running.
@@ -92,14 +142,18 @@ def check_for_mandatory_liquidation(ib: IB):
             logging.debug("Liquidation check: All clear.")
     pass
 
-def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], potential_signals: List[str]):
+# UPDATED: potential_signals now is a Dict[str, str] = {ticker: 'LONG'/'SHORT'}
+def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], potential_signals: Dict[str, str]):
     # The heart of Module C. It manages:
-    # 1. Placing new orders if signals are detected.
+    # 1. Placing new orders if signals are detected (with capital allocation).
     # 2. Monitoring open orders (filling/canceling).
     # 3. Managing existing positions (Internal Stop Loss).
 
+    # NOTE: The stop loss logic (0.95 multiplier) is currently hardcoded and should be
+    # calculated dynamically based on ATR or the strategy's risk rules in a later step.
+
     # A. Strategy Execution (Placing NEW Orders)
-    for ticker in potential_signals:
+    for ticker, signal_type in potential_signals.items():
         contract = next((c for c in contracts_to_monitor if c.symbol == ticker), None)
         if contract is None:
             continue
@@ -109,60 +163,68 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
 
         # Only place a new order if there is a signal, no position, and no open order
         if position == 0.0 and not is_order_pending:
-            
-            # FIX: Get latest market data synchronously using ib.reqTickers()
+
+            # Get latest market data synchronously using ib.reqTickers()
             try:
                 ticker_data = ib.reqTickers(contract)
                 if not ticker_data or ticker_data[0].last is None:
                     logging.error(f"Failed to get current price for {ticker}. Skipping order.")
                     continue
-                
+
                 limit_price = ticker_data[0].last # Use the last traded price for the limit price
+
             except Exception as e:
                 logging.error(f"Error fetching ticker data for {ticker}: {e}")
                 continue
 
-            quantity = 100 # Placeholder quantity (Needs proper size calculation later)
-
             if limit_price is not None:
+
+                # IMPORTANT: Calculate risk per share for the entry trade
+                # We use the hardcoded 5% stop loss for simplicity in this version
+                # Long position risk per share = Entry Price - Stop Price
+                entry_stop_level = limit_price * 0.95
+                risk_per_share = limit_price - entry_stop_level
+
+                # --- NEW: Calculate Quantity using Capital Allocation ---
+                quantity = calculate_order_quantity(ticker, signal_type, limit_price, risk_per_share)
+                # ----------------------------------------------------
+
+                if quantity == 0.0:
+                    logging.warning(f"Order quantity calculated as 0 for {ticker}. Skipping order placement.")
+                    continue
+
                 # Place the limit entry order
                 new_trade = place_entry_order(ib, contract, 'BUY', quantity, limit_price)
 
-                # IMPORTANT: Calculate and store the internal stop loss level immediately
-                entry_price = limit_price # For a limit order, this is the intended entry price
-                # Example: Set stop loss 5% below entry price
-                internal_stop_level = entry_price * 0.95
-
+                # IMPORTANT: Store internal stop level and signal type
                 ACTIVE_TRADES[ticker] = {
                     'entry_trade': new_trade,
                     'position': quantity,
-                    'entry_price': entry_price,
-                    'internal_stop': internal_stop_level
+                    'entry_price': limit_price,
+                    'internal_stop': entry_stop_level, # Already calculated above
+                    'signal_type': signal_type # NEW: Store signal type
                 }
-                logging.warning(f"Strategy: Placing NEW order for {ticker}. Internal Stop set @ {internal_stop_level:.2f}")
+                logging.warning(f"Strategy: Placing NEW {signal_type} order for {ticker} ({quantity} shares). Internal Stop set @ {entry_stop_level:.2f}")
 
-    # B. Manage Open Orders (Filling)
+    # B. Manage Open Orders (Filling/Cancellation)
     trades_to_remove = []
-    for ticker, trade_info in list(ACTIVE_TRADES.items()): # Iterate over a copy
+    for ticker, trade_info in list(ACTIVE_TRADES.items()):
         trade = trade_info['entry_trade']
 
         # 1. Check if the limit order was filled
         if trade.orderStatus.status == 'Filled':
-            # This logic assumes the entire position was filled in one go
-            logging.info(f"Order filled for {trade.contract.symbol}! Position taken. Entry Price: {trade.orderStatus.avgFillPrice:.2f}")
-
             # Update entry price and stop level based on actual fill price
             actual_entry_price = trade.orderStatus.avgFillPrice
             trade_info['entry_price'] = actual_entry_price
-            trade_info['internal_stop'] = actual_entry_price * 0.95 # Recalculate based on fill price
 
-            logging.info(f"Internal Stop updated to {trade_info['internal_stop']:.2f} based on fill price.")
+            # Recalculate stop based on actual fill price (using 5% for now)
+            trade_info['internal_stop'] = actual_entry_price * 0.95
+
+            logging.info(f"Order filled for {trade.contract.symbol}! Position taken. Entry Price: {actual_entry_price:.2f}. Internal Stop updated to {trade_info['internal_stop']:.2f}")
 
         elif trade.orderStatus.status in ['Cancelled', 'ApiCancelled']:
             logging.warning(f"Order for {trade.contract.symbol} was cancelled. Removing from active trades.")
             trades_to_remove.append(ticker)
-
-        # 2. Add timeout/cancellation logic here if needed (e.g., if order is stale)
 
     # Remove cancelled trades
     for ticker in trades_to_remove:
@@ -171,19 +233,19 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
     # C. Manage Existing Positions (Internal Stop Loss Monitoring)
     for ticker, trade_info in list(ACTIVE_TRADES.items()):
         contract = trade_info['entry_trade'].contract
-        position = get_current_position(ib, contract) # Use the fixed position check
+        position = get_current_position(ib, contract)
 
         # Only proceed if we actually hold a position
         if abs(position) > 0.0:
-            
-            # FIX: Use reqTickers for current price check as well
+
+            # Use reqTickers for current price check
             try:
                 market_data = ib.reqTickers(contract)
                 current_price = market_data[0].last if market_data and market_data[0].last else None
             except Exception as e:
                 logging.error(f"Error fetching live ticker data for {ticker} for stop check: {e}")
                 continue
-            
+
             if current_price is None:
                 logging.error(f"Cannot get market data for {ticker} to check stop loss.")
                 continue
@@ -199,6 +261,7 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
 
             elif position < 0 and current_price > internal_stop:
                 # Stop triggered! Liquidate the short position with a BUY market order
+                # NOTE: This part is for general risk management; current strategies are BUY only.
                 liquidate_position(ib, contract, position, 'BUY')
                 # Remove from active trades
                 del ACTIVE_TRADES[ticker]
@@ -206,4 +269,3 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
             # Log status
             logging.debug(f"Position check for {ticker}: Price {current_price:.2f}, Stop @ {internal_stop:.2f}")
     pass
-
