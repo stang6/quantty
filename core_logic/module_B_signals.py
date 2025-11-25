@@ -1,3 +1,6 @@
+# ============================================
+# core_logic/module_B_signals.py (Updated with DUMMY TEST SIGNAL)
+# ============================================
 
 import logging
 import pandas as pd
@@ -7,15 +10,15 @@ from typing import List, Dict, Optional
 
 def generate_signals(filtered_symbols: List[str], current_prices: Dict) -> List[Dict]:
     """
-    計算 RSI/MACD 指標並生成 Buy/Sell 訊號（Module B）。
+    Calculate RSI/MACD indicators and generate Buy/Sell signals (Module B).
 
-    :param filtered_symbols: 經過 Module A 過濾後的股票清單。
-    :param current_prices: 股票的最新價格。
-    :return: 包含訊號的清單 (e.g., [{'symbol': 'TSLA', 'action': 'BUY', 'price': 180.50}])
+    :param filtered_symbols: List of symbols filtered by Module A (long-term trend).
+    :param current_prices: Latest prices for the stocks.
+    :return: List containing signals (e.g., [{'symbol': 'TSLA', 'action': 'BUY', 'price': 180.50}])
     """
     logging.info("Module B: Calculating indicators and generating signals...")
 
-    # 為了啟動測試，先返回一個範例訊號
+    # For initial testing, return a sample signal (Placeholder logic)
     if 'TSLA' in filtered_symbols:
         return [{'symbol': 'TSLA', 'action': 'BUY', 'price': 180.50}]
 
@@ -39,7 +42,7 @@ def calculate_indicators(data_df):
     data_df['Signal_Line'] = data_df['MACD'].ewm(span=MACD_SIGNAL, adjust=False).mean()
 
     # 3. Volume Confirmation
-    data_df['Volume_MA'] = data_df['volume'].rolling(window=VOLUME_PERIOD).mean() # volume 已修正
+    data_df['Volume_MA'] = data_df['volume'].rolling(window=VOLUME_PERIOD).mean() # Corrected: used 'volume' column
 
     # 4. ATR Calculation (Needed for Trailing Stop)
     # True Range calculation: Max([H-L], |H-PC|, |L-PC|)
@@ -54,6 +57,14 @@ def calculate_indicators(data_df):
 def generate_buy_signal(data_df, is_trend_up):
     """Generates the final buy signal based on multi-factor confirmation."""
 
+    # --- START OF DUMMY TEST LOGIC (TO BE REMOVED AFTER TESTING) ---
+    # This logic forces a BUY signal for all tickers that passed the trend filter (Module A).
+    if is_trend_up:
+        logging.warning("TEST OVERRIDE: Forcing BUY signal for current ticker (to test Module C execution).")
+        return True
+    # --- END OF DUMMY TEST LOGIC ---
+
+
     if not is_trend_up or data_df.empty:
         return False
 
@@ -67,7 +78,7 @@ def generate_buy_signal(data_df, is_trend_up):
                     data_df.iloc[-2]['MACD'] <= data_df.iloc[-2]['Signal_Line']
 
     # Condition 3: Volume Confirmation
-    volume_confirmation = latest['volume'] > latest['Volume_MA'] # 最終修正：將 'Volume' 改為 'volume'
+    volume_confirmation = latest['volume'] > latest['Volume_MA'] # Final check: volume confirmation
 
     # Final Combined Signal
     if rsi_current_rebound and macd_cross_up and volume_confirmation:
