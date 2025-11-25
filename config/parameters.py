@@ -31,14 +31,25 @@ TICK_ADJUSTMENT = 0.01         # Price adjustment for Limit Order slippage/retry
 ATR_PERIOD = 14                # ATR period for volatility calculation (Daily Bars)
 ATR_MULTIPLIER = 3.0           # Trailing stop distance multiplier (3 * ATR)
 
-# === MODULE D (TSLA SHORT-TERM) SETTINGS ===
+# === MODULE D (SHORT-TERM) SETTINGS ===
 TSLA_TICKER = 'TSLA'
 TSLA_SHORT_TERM_RSI_OVERSOLD = 10 # RSI threshold for 5-min buy signal
 TSLA_SHORT_TERM_RSI_PERIOD = 14
 
+SHORT_TERM_DURATION = "2 D"
+SHORT_TERM_BAR_SIZE = "5 mins"
+
+SHORT_RSI_PERIOD = 14
+SHORT_RSI_BUY_THRESHOLD = 10     # RSI < 10 → Buy
+SHORT_RSI_SELL_THRESHOLD = 65    # RSI > 65 → Sell
+
+MACD_FAST = 12
+MACD_SLOW = 26
+MACD_SIGNAL = 9
 
 # --- IB 連線參數 ---
 IB_HOST = '127.0.0.1'
 IB_PORT = 4002                 # Paper Trading Port (usually 4002 or 7497)
 IB_CLIENT_ID = 50
+
 

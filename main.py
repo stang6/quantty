@@ -218,20 +218,19 @@ class QuantDaemon:
         logging.warning(f"Daily Done: Approved={self.approved_tickers}, Pending={list(self.pending_signals)}")
 
     # ============================================
-    # MODULE D — TSLA SHORT TERM
+    # MODULE D — SHORT TERM Trading
     # ============================================
     def run_min5_analysis(self):
-        if TSLA_TICKER not in self.approved_tickers:
-            return
+        for c in self.contracts:
+            symbol = c.symbol
 
-        c = next((x for x in self.contracts if x.symbol == TSLA_TICKER), None)
-        if not c:
-            return
+            if symbol not in self.approved_tickers:
+                continue
 
-        sig = module_D_execution.run_tsla_min5_analysis(self.ib, c)
-        if sig:
-            self.pending_signals[TSLA_TICKER] = sig
-            logging.info(f"TSLA short-term signal added: {sig}")
+            sig = module_D_execution.run_short_term_strategy(self.ib,c,strategy_name="RSI")
+            if sig:
+                self.pending_signals[symbol] = sig
+                logging.info(f"[Module D] Short-term signal: {sig}")
 
     # ============================================
     # MODULE C — ORDER EXECUTION MONITOR
