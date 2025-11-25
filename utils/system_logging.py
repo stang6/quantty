@@ -7,7 +7,7 @@ def setup_logging(log_filename='trading_system.log', error_filename='error.log')
 
     # 1. Base Configuration (不設定 level，讓處理器決定)
     # 設置根記錄器的最低捕獲級別為 DEBUG，確保所有資訊都能被處理器捕獲
-    logging.getLogger('').setLevel(logging.DEBUG) 
+    logging.getLogger('').setLevel(logging.INFO) 
 
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(module)s - %(message)s')
 
