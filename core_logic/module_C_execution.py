@@ -1,6 +1,5 @@
-
 # ============================================
-# core_logic/module_C_execution.py (Updated for Internal Stop Management)
+# core_logic/module_C_execution.py
 # ============================================
 
 import logging
@@ -13,7 +12,7 @@ import pandas as pd # Needed for potential PnL calculations or price access
 # {ticker: {'entry_trade': Trade object, 'position': float, 'entry_price': float, 'internal_stop': float}}
 ACTIVE_TRADES = {}
 
-# --- 輔助函式 (Helpers) ---
+# --- Helper Functions ---
 
 def check_open_orders(ib: IB, contract: Contract) -> bool:
     # Check if there is any pending order for the given contract.
@@ -28,11 +27,14 @@ def check_open_orders(ib: IB, contract: Contract) -> bool:
 
 def get_current_position(ib: IB, contract: Contract) -> float:
     # Get the current position size for a contract. Returns 0.0 if no position is found.
+    # FIX: Optimized to fetch all positions and manually filter, avoiding "can't be hashed" error.
     try:
-        # ib.positions(contract) returns a list, take the first element (the position object)
-        position = ib.positions(contract)[0].position
-        return position
-    except IndexError:
+        all_positions = ib.positions()
+        
+        for pos in all_positions:
+            if pos.contract.symbol == contract.symbol:
+                return pos.position
+        
         return 0.0
     except Exception as e:
         logging.error(f"Error checking position for {contract.symbol}: {e}")
@@ -74,7 +76,7 @@ def liquidate_position(ib: IB, contract: Contract, position_size: float, action:
     logging.critical(f"STOP LOSS TRIGGERED: Placing Market Order to {action} {abs(position_size)} shares of {contract.symbol} to close position.")
     return trade
 
-# --- 核心執行邏輯 (Core Execution) ---
+# --- Core Execution Logic ---
 
 def check_for_mandatory_liquidation(ib: IB):
     # A placeholder function to check if the system needs to liquidate all positions
@@ -96,7 +98,6 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
     # 2. Monitoring open orders (filling/canceling).
     # 3. Managing existing positions (Internal Stop Loss).
 
-
     # A. Strategy Execution (Placing NEW Orders)
     for ticker in potential_signals:
         contract = next((c for c in contracts_to_monitor if c.symbol == ticker), None)
@@ -108,9 +109,20 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
 
         # Only place a new order if there is a signal, no position, and no open order
         if position == 0.0 and not is_order_pending:
-            # FIX: Needs actual price and quantity calculation. Using placeholders.
-            limit_price = ib.reqMktData(contract).close
-            quantity = 100 # Placeholder quantity
+            
+            # FIX: Get latest market data synchronously using ib.reqTickers()
+            try:
+                ticker_data = ib.reqTickers(contract)
+                if not ticker_data or ticker_data[0].last is None:
+                    logging.error(f"Failed to get current price for {ticker}. Skipping order.")
+                    continue
+                
+                limit_price = ticker_data[0].last # Use the last traded price for the limit price
+            except Exception as e:
+                logging.error(f"Error fetching ticker data for {ticker}: {e}")
+                continue
+
+            quantity = 100 # Placeholder quantity (Needs proper size calculation later)
 
             if limit_price is not None:
                 # Place the limit entry order
@@ -128,7 +140,6 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
                     'internal_stop': internal_stop_level
                 }
                 logging.warning(f"Strategy: Placing NEW order for {ticker}. Internal Stop set @ {internal_stop_level:.2f}")
-
 
     # B. Manage Open Orders (Filling)
     trades_to_remove = []
@@ -157,24 +168,22 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
     for ticker in trades_to_remove:
         del ACTIVE_TRADES[ticker]
 
-
     # C. Manage Existing Positions (Internal Stop Loss Monitoring)
     for ticker, trade_info in list(ACTIVE_TRADES.items()):
-        position = get_current_position(ib, trade_info['entry_trade'].contract)
+        contract = trade_info['entry_trade'].contract
+        position = get_current_position(ib, contract) # Use the fixed position check
 
         # Only proceed if we actually hold a position
         if abs(position) > 0.0:
-            contract = trade_info['entry_trade'].contract
-
-            # Get the current market price for stop monitoring
-            # FIX: We need robust market data handling. Using a simplified approach here.
-            market_data = ib.reqMktData(contract, '', False, False)
-            ib.sleep(0.5) # Allow time for data update
-
-            current_price = market_data.close if market_data and market_data.close else None
-
-            ib.cancelMktData(contract) # Cancel subscription immediately to avoid data overload
-
+            
+            # FIX: Use reqTickers for current price check as well
+            try:
+                market_data = ib.reqTickers(contract)
+                current_price = market_data[0].last if market_data and market_data[0].last else None
+            except Exception as e:
+                logging.error(f"Error fetching live ticker data for {ticker} for stop check: {e}")
+                continue
+            
             if current_price is None:
                 logging.error(f"Cannot get market data for {ticker} to check stop loss.")
                 continue
@@ -196,5 +205,5 @@ def manage_limit_order_lifecycle(ib: IB, contracts_to_monitor: List[Contract], p
 
             # Log status
             logging.debug(f"Position check for {ticker}: Price {current_price:.2f}, Stop @ {internal_stop:.2f}")
-
     pass
+
