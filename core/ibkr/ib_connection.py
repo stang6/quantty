@@ -22,14 +22,20 @@ class IBConnection:
             target=self._heartbeat_loop, daemon=True
         )
 
+        # Optional hook executed on every main loop iteration
+        self._loop_hook = None
+
     # ---------------------------------------------------------
     # Public API
     # ---------------------------------------------------------
-    def start(self):
+    def start(self, loop_hook=None):
+        self._loop_hook = loop_hook
         logging.info("[IB] Starting core IB connection...")
 
         self._connect_blocking()
         self._hb_thread.start()
+
+        # Must run event loop in main thread
         self._main_loop()  # Event loop lives in main thread
 
     def stop(self):
@@ -100,17 +106,19 @@ class IBConnection:
                 time.sleep(1)
                 self._connect_blocking()
 
-            # ---- SAFE EVENT LOOP ----
+            # User-defined hook (for example TSLA ingestion)
+            if self._loop_hook:
+                try:
+                    self._loop_hook()
+                except Exception as e:
+                    logging.error("[IB] Loop hook error: %s", e, exc_info=True)
+
+            # Required to pump IB API events
             try:
                 self.ib.sleep(1)
 
-            except ConnectionError as e:
-                logging.error(f"[IB] Socket disconnect: {e}")
-                self.connected = False
-                self._attempt_reconnect()
-
             except Exception as e:
-                logging.error(f"[IB] Unexpected main-loop exception: {e}")
+                logging.error("[IB] Main-loop connection exception: %s", e)
                 self.connected = False
                 self._attempt_reconnect()
 
