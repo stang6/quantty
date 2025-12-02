@@ -3,4 +3,5 @@ __pycache__/
 historical_data/
 *.log
 *.pyc
+*.csv
 
