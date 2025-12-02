@@ -1,0 +1,12 @@
+ib:
+  host: "127.0.0.1"
+  port: 4002
+  client_id: 1
+
+ingestion:
+  symbols:
+    - TSLA
+    - AAPL
+  poll_interval: 5
+  output_dir: "data"
+
