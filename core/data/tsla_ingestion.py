@@ -1,5 +1,4 @@
 # core/data/tsla_ingestion.py
-import csv
 import time
 import logging
 import math
@@ -7,16 +6,18 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from ib_insync import Stock
+from core.storage.writers import CSVWriter
 
 
 class TslaIngestion:
     """
     Subscribe to TSLA realtime market data and,
-    every N seconds, write a snapshot (bid/ask/last/volume) to CSV.
+    every N seconds, write a snapshot (bid/ask/last/volume).
 
     This covers:
     - Issue #4: realtime subscription for TSLA
-    - Issue #5: 5-second ingestion loop (TSLA)
+    - Issue #5: 5-second ingestion loop
+    - Issue #6: decouple writer (CSVWriter)
     """
 
     def __init__(
@@ -27,18 +28,16 @@ class TslaIngestion:
     ):
         self.ib = ib
         self.poll_interval_sec = poll_interval_sec
-        self.output_path = Path(output_path)
-
-        self._ticker = None
         self._next_run_ts = time.time()
-        self._ensure_output_file()
+        self._ticker = None
 
+        # Use new CSVWriter (replaces manual CSV logic)
+        self.writer = CSVWriter(output_path)
+
+    # -----------------------------
+    # Public: called from IB main loop
+    # -----------------------------
     def run_step(self) -> None:
-        """
-        Called from IBConnection main loop every ~1 second.
-        - Ensure there is a subscription
-        - If the poll interval has passed, write a snapshot to disk
-        """
         self._ensure_subscription()
 
         now = time.time()
@@ -51,16 +50,6 @@ class TslaIngestion:
     # -----------------------------
     # Internal helpers
     # -----------------------------
-    def _ensure_output_file(self) -> None:
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.output_path.exists():
-            with self.output_path.open("w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["ts_utc", "bid", "ask", "last", "volume"])
-            logging.info(
-                "TSLA: Created output file with header at %s", self.output_path
-            )
-
     def _ensure_subscription(self) -> None:
         if self._ticker is not None:
             return
@@ -87,18 +76,22 @@ class TslaIngestion:
 
             ts = datetime.now(timezone.utc).isoformat()
 
-            with self.output_path.open("a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([ts, bid, ask, last, volume])
+            # --------------------------
+            # Key change: use writer
+            # --------------------------
+            self.writer.write({
+                "ts_utc": ts,
+                "bid": bid,
+                "ask": ask,
+                "last": last,
+                "volume": volume,
+            })
 
             logging.info(
                 "TSLA: Snapshot ts=%s bid=%.2f ask=%.2f last=%.2f vol=%d",
-                ts,
-                bid,
-                ask,
-                last,
-                volume,
+                ts, bid, ask, last, volume
             )
+
         except Exception as e:
             logging.error("TSLA: Ingestion error: %s", e, exc_info=True)
 
