@@ -1,4 +1,4 @@
-# core/data/tsla_ingestion.py
+# core/data/aapl_ingestion.py
 import logging
 import math
 from datetime import datetime, timezone
@@ -8,33 +8,25 @@ from core.data.ingestion_base import IngestionBase
 from core.storage.writers import CSVWriter
 
 
-class TslaIngestion(IngestionBase):
+class AaplIngestion(IngestionBase):
     """
-    TSLA realtime ingestion.
-    Handles subscription + periodic snapshot writing.
-    Supports Issue #4, #5, #6, and now fits Issue #7 abstraction.
+    AAPL realtime ingestion.
     """
 
-    def __init__(self, ib, poll_interval_sec=5, output_path="data/tsla_realtime_ticks.csv"):
+    def __init__(self, ib, poll_interval_sec=5, output_path="data/aapl_realtime_ticks.csv"):
         super().__init__(poll_interval_sec)
         self.ib = ib
         self.writer = CSVWriter(output_path)
         self._ticker = None
 
-    # ---------------------------------------------------------
-    # Required by IngestionBase
-    # ---------------------------------------------------------
     def ensure_subscription(self) -> None:
         if self._ticker is not None:
             return
 
-        contract = Stock("TSLA", "SMART", "USD")
+        contract = Stock("AAPL", "SMART", "USD")
         self._ticker = self.ib.reqMktData(contract, "", False, False)
-        logging.info("TSLA: Subscribed to realtime market data")
+        logging.info("AAPL: Subscribed to realtime market data")
 
-    # ---------------------------------------------------------
-    # Required by IngestionBase
-    # ---------------------------------------------------------
     def write_snapshot(self) -> None:
         try:
             t = self._ticker
@@ -53,7 +45,6 @@ class TslaIngestion(IngestionBase):
 
             ts = datetime.now(timezone.utc).isoformat()
 
-            # Write using CSVWriter
             self.writer.write({
                 "ts_utc": ts,
                 "bid": bid,
@@ -63,10 +54,10 @@ class TslaIngestion(IngestionBase):
             })
 
             logging.info(
-                "TSLA: Snapshot ts=%s bid=%.2f ask=%.2f last=%.2f vol=%d",
+                "AAPL: Snapshot ts=%s bid=%.2f ask=%.2f last=%.2f vol=%d",
                 ts, bid, ask, last, volume
             )
 
         except Exception as e:
-            logging.error("TSLA: Ingestion error: %s", e, exc_info=True)
+            logging.error("AAPL: Ingestion error: %s", e, exc_info=True)
 
