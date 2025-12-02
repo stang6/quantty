@@ -1,7 +1,9 @@
-import logging
 import threading
 import time
 from ib_insync import IB
+from core.logging.logger import get_logger
+logger = get_logger("IB")
+
 
 
 class IBConnection:
@@ -30,7 +32,7 @@ class IBConnection:
     # ---------------------------------------------------------
     def start(self, loop_hook=None):
         self._loop_hook = loop_hook
-        logging.info("[IB] Starting core IB connection...")
+        logger.info("[IB] Starting core IB connection...")
 
         self._connect_blocking()
         self._hb_thread.start()
@@ -39,7 +41,7 @@ class IBConnection:
         self._main_loop()  # Event loop lives in main thread
 
     def stop(self):
-        logging.info("[IB] Stopping IB connection...")
+        logger.info("[IB] Stopping IB connection...")
         self._stop = True
         try:
             self.ib.disconnect()
@@ -52,17 +54,17 @@ class IBConnection:
     def _connect_blocking(self):
         """Synchronously connect in the main thread."""
         try:
-            logging.info(f"[IB] Connecting to {self.host}:{self.port} (clientId={self.client_id})")
+            logger.info(f"[IB] Connecting to {self.host}:{self.port} (clientId={self.client_id})")
             self.ib.connect(self.host, self.port, clientId=self.client_id)
 
             if self.ib.isConnected():
                 self.connected = True
-                logging.info("[IB] Connected successfully.")
+                logger.info("[IB] Connected successfully.")
             else:
                 raise RuntimeError("IB connection returned false")
 
         except Exception as e:
-            logging.error(f"[IB] Connection failed: {e}")
+            logger.error(f"[IB] Connection failed: {e}")
             self.connected = False
 
     def _attempt_reconnect(self):
@@ -72,16 +74,16 @@ class IBConnection:
     # Heartbeat Thread (cannot call API)
     # ---------------------------------------------------------
     def _heartbeat_loop(self):
-        logging.info("[IB] Heartbeat thread started.")
+        logger.info("[IB] Heartbeat thread started.")
         while not self._stop:
             try:
                 if not self.ib.isConnected():
-                    logging.warning("[IB] Heartbeat detected disconnect.")
+                    logger.warning("[IB] Heartbeat detected disconnect.")
                     self._attempt_reconnect()
                 else:
-                    logging.debug("[IB] Heartbeat OK.")
+                    logger.debug("[IB] Heartbeat OK.")
             except Exception as e:
-                logging.error(f"[IB] Heartbeat exception: {e}")
+                logger.error(f"[IB] Heartbeat exception: {e}")
                 self._attempt_reconnect()
 
             time.sleep(5)
@@ -90,13 +92,13 @@ class IBConnection:
     # Main Thread Loop (must run IB event loop)
     # ---------------------------------------------------------
     def _main_loop(self):
-        logging.info("[IB] Entering main event loop.")
+        logger.info("[IB] Entering main event loop.")
 
         while not self._stop:
             # Handle scheduled reconnect
             if self._schedule_reconnect:
                 self._schedule_reconnect = False
-                logging.info("[IB] Reconnecting...")
+                logger.info("[IB] Reconnecting...")
 
                 try:
                     self.ib.disconnect()
@@ -111,14 +113,14 @@ class IBConnection:
                 try:
                     self._loop_hook()
                 except Exception as e:
-                    logging.error("[IB] Loop hook error: %s", e, exc_info=True)
+                    logger.error("[IB] Loop hook error: %s", e, exc_info=True)
 
             # Required to pump IB API events
             try:
                 self.ib.sleep(1)
 
             except Exception as e:
-                logging.error("[IB] Main-loop connection exception: %s", e)
+                logger.error("[IB] Main-loop connection exception: %s", e)
                 self.connected = False
                 self._attempt_reconnect()
 
