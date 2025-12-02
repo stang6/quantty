@@ -2,40 +2,67 @@
 from core.ibkr.ib_connection import IBConnection
 from core.data.tsla_ingestion import TslaIngestion
 from core.data.aapl_ingestion import AaplIngestion
+from core.config.loader import Config
 from core.logging.logger import get_logger
 
 logger = get_logger("main")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
-
 def main() -> None:
-    ib_conn = IBConnection(host="127.0.0.1", port=4002, client_id=1)
+    # ------------------------------------
+    # Load configuration
+    # ------------------------------------
+    cfg = Config.load()
 
-    tsla_ingestor = TslaIngestion(
-        ib=ib_conn.ib,
-        poll_interval_sec=5,
-        output_path="data/tsla_realtime_ticks.csv",
-    )
+    host = cfg["ib"]["host"]
+    port = cfg["ib"]["port"]
+    client_id = cfg["ib"]["client_id"]
 
-    aapl_ingestor = AaplIngestion(
-        ib=ib_conn.ib,
-        poll_interval_sec=5,
-        output_path="data/aapl_realtime_ticks.csv",
-    )
+    poll_interval = cfg["ingestion"]["poll_interval"]
+    symbols = cfg["ingestion"]["symbols"]
+    output_dir = cfg["ingestion"]["output_dir"]
 
-    # single symbol
-    #ib_conn.start(loop_hook=tsla_ingestor.run_step)
+    # ------------------------------------
+    # Start IB connection
+    # ------------------------------------
+    ib_conn = IBConnection(host=host, port=port, client_id=client_id)
 
-    # multiple symbols
+    # ------------------------------------
+    # Dynamically create ingestion objects
+    # ------------------------------------
+    ingestors = []
+
+    for sym in symbols:
+        if sym == "TSLA":
+            ingestors.append(
+                TslaIngestion(
+                    ib=ib_conn.ib,
+                    poll_interval_sec=poll_interval,
+                    output_path=f"{output_dir}/tsla_realtime_ticks.csv",
+                )
+            )
+        elif sym == "AAPL":
+            ingestors.append(
+                AaplIngestion(
+                    ib=ib_conn.ib,
+                    poll_interval_sec=poll_interval,
+                    output_path=f"{output_dir}/aapl_realtime_ticks.csv",
+                )
+            )
+        else:
+            logger.warning(f"Symbol '{sym}' not supported yet in main.py")
+
+    # ------------------------------------
+    # Combined loop for all ingestors
+    # ------------------------------------
     def combined_loop():
-        tsla_ingestor.run_step()
-        aapl_ingestor.run_step()
+        for ing in ingestors:
+            ing.run_step()
 
+    # ------------------------------------
+    # Start event loop
+    # ------------------------------------
     ib_conn.start(loop_hook=combined_loop)
-    # multiple end
+
 
 if __name__ == "__main__":
     main()
