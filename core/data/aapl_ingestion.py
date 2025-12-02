@@ -1,12 +1,12 @@
 # core/data/aapl_ingestion.py
-import logging
 import math
 from datetime import datetime, timezone
 
 from ib_insync import Stock
 from core.data.ingestion_base import IngestionBase
 from core.storage.writers import CSVWriter
-
+from core.logging.logger import get_logger
+logger = get_logger("AAPL")
 
 class AaplIngestion(IngestionBase):
     """
@@ -25,7 +25,7 @@ class AaplIngestion(IngestionBase):
 
         contract = Stock("AAPL", "SMART", "USD")
         self._ticker = self.ib.reqMktData(contract, "", False, False)
-        logging.info("AAPL: Subscribed to realtime market data")
+        logger.info("AAPL: Subscribed to realtime market data")
 
     def write_snapshot(self) -> None:
         try:
@@ -53,11 +53,11 @@ class AaplIngestion(IngestionBase):
                 "volume": volume,
             })
 
-            logging.info(
+            logger.info(
                 "AAPL: Snapshot ts=%s bid=%.2f ask=%.2f last=%.2f vol=%d",
                 ts, bid, ask, last, volume
             )
 
         except Exception as e:
-            logging.error("AAPL: Ingestion error: %s", e, exc_info=True)
+            logger.error("AAPL: Ingestion error: %s", e, exc_info=True)
 
