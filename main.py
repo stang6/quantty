@@ -1,4 +1,5 @@
 # main.py
+import time
 from core.ibkr.ib_connection import IBConnection
 from core.data.tsla_ingestion import TslaIngestion
 from core.data.aapl_ingestion import AaplIngestion
@@ -6,6 +7,7 @@ from core.config.loader import Config
 from core.logging.logger import get_logger
 
 logger = get_logger("main")
+
 
 def main() -> None:
     # ------------------------------------
@@ -49,19 +51,24 @@ def main() -> None:
                 )
             )
         else:
-            logger.warning(f"Symbol '{sym}' not supported yet in main.py")
+            logger.warning(f"Symbol '{sym}' not supported in main.py")
 
     # ------------------------------------
-    # Combined loop for all ingestors
+    # Combined loop (executed every ~1 sec)
     # ------------------------------------
     def combined_loop():
         for ing in ingestors:
             ing.run_step()
 
     # ------------------------------------
-    # Start event loop
+    # Run IB event loop
     # ------------------------------------
-    ib_conn.start(loop_hook=combined_loop)
+    try:
+        ib_conn.start(loop_hook=combined_loop)
+    finally:
+        logger.info("[MAIN] Cleanup before exit...")
+        ib_conn.stop()
+        logger.info("[MAIN] Shutdown complete.")
 
 
 if __name__ == "__main__":
