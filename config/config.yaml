@@ -7,6 +7,6 @@ ingestion:
   symbols:
     - TSLA
     - AAPL
-  poll_interval: 5
+  poll_interval: 1
   output_dir: "data"
 

@@ -1,5 +1,8 @@
 # main.py
+import os
 import time
+from pathlib import Path
+
 from core.ibkr.ib_connection import IBConnection
 from core.data.tsla_ingestion import TslaIngestion
 from core.data.aapl_ingestion import AaplIngestion
@@ -10,8 +13,30 @@ from core.logging.logger import get_logger
 logger = get_logger("main")
 
 
+# ---------------------------------------------------------
+# Helper: Ensure required directories exist
+# ---------------------------------------------------------
+def ensure_directories():
+    required_dirs = ["data", "logs", "historical_data"]
+    for d in required_dirs:
+        Path(d).mkdir(parents=True, exist_ok=True)
+    logger.info(f"[MAIN] Ensured required directories: {required_dirs}")
+
+
+# ---------------------------------------------------------
+# Main Launcher
+# ---------------------------------------------------------
 def main():
+    logger.info("=== Starting Quantty MVP Launcher ===")
+
+    # ensure folders exist
+    ensure_directories()
+
+    # ------------------------------------
+    # Load configuration
+    # ------------------------------------
     cfg = Config.load()
+    logger.info("[MAIN] Loaded config from config/config.yaml")
 
     host = cfg["ib"]["host"]
     port = cfg["ib"]["port"]
@@ -26,47 +51,64 @@ def main():
 
     # dashboard
     dashboard = Dashboard(snapshot_registry, refresh_sec=1)
+    logger.info("[MAIN] Dashboard initialized.")
 
     # IB connection
     ib_conn = IBConnection(host=host, port=port, client_id=client_id)
+    logger.info("[MAIN] IB connection object created.")
 
-    # build ingestors
+    # ------------------------------------
+    # Build ingestion pipeline
+    # ------------------------------------
     ingestors = []
 
     for sym in symbols:
+        out_path = f"{output_dir}/{sym.lower()}_realtime_ticks.csv"
+
         if sym == "TSLA":
-            ingestors.append(
-                TslaIngestion(
-                    ib=ib_conn.ib,
-                    poll_interval_sec=poll_interval,
-                    output_path=f"{output_dir}/tsla_realtime_ticks.csv",
-                    snapshot_registry=snapshot_registry,
-                )
+            ing = TslaIngestion(
+                ib=ib_conn.ib,
+                poll_interval_sec=poll_interval,
+                output_path=out_path,
+                snapshot_registry=snapshot_registry,
             )
         elif sym == "AAPL":
-            ingestors.append(
-                AaplIngestion(
-                    ib=ib_conn.ib,
-                    poll_interval_sec=poll_interval,
-                    output_path=f"{output_dir}/aapl_realtime_ticks.csv",
-                    snapshot_registry=snapshot_registry,
-                )
+            ing = AaplIngestion(
+                ib=ib_conn.ib,
+                poll_interval_sec=poll_interval,
+                output_path=out_path,
+                snapshot_registry=snapshot_registry,
             )
         else:
-            logger.warning(f"Symbol '{sym}' not supported yet.")
+            logger.warning(f"[MAIN] Unsupported symbol '{sym}', skipped.")
+            continue
 
-    # loop hook
+        ingestors.append(ing)
+
+    logger.info(f"[MAIN] Ingestors initialized for: {symbols}")
+
+    # ------------------------------------
+    # Main Loop Hook
+    # ------------------------------------
     def combined_loop():
         for ing in ingestors:
             ing.run_step()
+
+        # render dashboard
         dashboard.render_once()
 
+    # ------------------------------------
+    # Start IB loop
+    # ------------------------------------
     try:
+        logger.info("[MAIN] Launching IB event loop...")
         ib_conn.start(loop_hook=combined_loop)
+
     finally:
         logger.info("[MAIN] Cleanup before exit...")
         ib_conn.stop()
         logger.info("[MAIN] Shutdown complete.")
+        logger.info("=== Quantty MVP Exit ===")
 
 
 if __name__ == "__main__":
