@@ -9,34 +9,24 @@ from core.logging.logger import get_logger
 
 logger = get_logger("TSLA")
 
-class TslaIngestion(IngestionBase):
-    """
-    TSLA realtime ingestion.
-    Handles subscription + periodic snapshot writing.
-    Supports Issue #4, #5, #6, and now fits Issue #7 abstraction.
-    """
 
-    def __init__(self, ib, poll_interval_sec=5, output_path="data/tsla_realtime_ticks.csv"):
+class TslaIngestion(IngestionBase):
+    def __init__(self, ib, poll_interval_sec=5, output_path="data/tsla_realtime_ticks.csv", snapshot_registry=None):
         super().__init__(poll_interval_sec)
         self.ib = ib
         self.writer = CSVWriter(output_path)
         self._ticker = None
+        self.snapshot_registry = snapshot_registry
+        self.symbol = "TSLA"
 
-    # ---------------------------------------------------------
-    # Required by IngestionBase
-    # ---------------------------------------------------------
-    def ensure_subscription(self) -> None:
+    def ensure_subscription(self):
         if self._ticker is not None:
             return
-
         contract = Stock("TSLA", "SMART", "USD")
         self._ticker = self.ib.reqMktData(contract, "", False, False)
         logger.info("TSLA: Subscribed to realtime market data")
 
-    # ---------------------------------------------------------
-    # Required by IngestionBase
-    # ---------------------------------------------------------
-    def write_snapshot(self) -> None:
+    def write_snapshot(self):
         try:
             t = self._ticker
             if t is None:
@@ -47,14 +37,14 @@ class TslaIngestion(IngestionBase):
             last = float(t.last or 0.0)
 
             raw_volume = t.volume
-            if raw_volume is None or (isinstance(raw_volume, float) and math.isnan(raw_volume)):
-                volume = 0
-            else:
+            try:
                 volume = int(raw_volume)
+            except Exception:
+                volume = 0
 
             ts = datetime.now(timezone.utc).isoformat()
 
-            # Write using CSVWriter
+            # write CSV
             self.writer.write({
                 "ts_utc": ts,
                 "bid": bid,
@@ -63,11 +53,22 @@ class TslaIngestion(IngestionBase):
                 "volume": volume,
             })
 
-            logger.info(
-                "TSLA: Snapshot ts=%s bid=%.2f ask=%.2f last=%.2f vol=%d",
-                ts, bid, ask, last, volume
+            # update dashboard snapshot
+            if self.snapshot_registry is not None:
+                self.snapshot_registry[self.symbol] = {
+                    "bid": bid,
+                    "ask": ask,
+                    "last": last,
+                    "volume": volume,
+                    "ts": ts,
+                }
+
+            logger.debug(
+                "%s: Snapshot ts=%s bid=%.2f ask=%.2f last=%.2f vol=%d",
+                self.symbol, ts, bid, ask, last, volume
             )
 
         except Exception as e:
-            logger.error("TSLA: Ingestion error: %s", e, exc_info=True)
+            logger.error("%s: Ingestion error: %s", self.symbol, e, exc_info=True)
+
 
