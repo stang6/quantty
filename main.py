@@ -1,18 +1,15 @@
 # main.py
-import time
 from core.ibkr.ib_connection import IBConnection
 from core.data.tsla_ingestion import TslaIngestion
 from core.data.aapl_ingestion import AaplIngestion
+from core.monitor.dashboard import Dashboard
 from core.config.loader import Config
 from core.logging.logger import get_logger
 
 logger = get_logger("main")
 
 
-def main() -> None:
-    # ------------------------------------
-    # Load configuration
-    # ------------------------------------
+def main():
     cfg = Config.load()
 
     host = cfg["ib"]["host"]
@@ -23,14 +20,16 @@ def main() -> None:
     symbols = cfg["ingestion"]["symbols"]
     output_dir = cfg["ingestion"]["output_dir"]
 
-    # ------------------------------------
-    # Start IB connection
-    # ------------------------------------
+    # shared registry for dashboard
+    snapshot_registry = {}
+
+    # dashboard
+    dashboard = Dashboard(snapshot_registry, refresh_sec=1)
+
+    # IB connection
     ib_conn = IBConnection(host=host, port=port, client_id=client_id)
 
-    # ------------------------------------
-    # Dynamically create ingestion objects
-    # ------------------------------------
+    # build ingestors
     ingestors = []
 
     for sym in symbols:
@@ -40,6 +39,7 @@ def main() -> None:
                     ib=ib_conn.ib,
                     poll_interval_sec=poll_interval,
                     output_path=f"{output_dir}/tsla_realtime_ticks.csv",
+                    snapshot_registry=snapshot_registry,
                 )
             )
         elif sym == "AAPL":
@@ -48,21 +48,18 @@ def main() -> None:
                     ib=ib_conn.ib,
                     poll_interval_sec=poll_interval,
                     output_path=f"{output_dir}/aapl_realtime_ticks.csv",
+                    snapshot_registry=snapshot_registry,
                 )
             )
         else:
-            logger.warning(f"Symbol '{sym}' not supported in main.py")
+            logger.warning(f"Symbol '{sym}' not supported yet.")
 
-    # ------------------------------------
-    # Combined loop (executed every ~1 sec)
-    # ------------------------------------
+    # loop hook
     def combined_loop():
         for ing in ingestors:
             ing.run_step()
+        dashboard.render_once()
 
-    # ------------------------------------
-    # Run IB event loop
-    # ------------------------------------
     try:
         ib_conn.start(loop_hook=combined_loop)
     finally:
