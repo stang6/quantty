@@ -1,4 +1,5 @@
 # main.py
+import time
 from core.ibkr.ib_connection import IBConnection
 from core.data.tsla_ingestion import TslaIngestion
 from core.data.aapl_ingestion import AaplIngestion
