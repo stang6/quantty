@@ -7,6 +7,7 @@ from core.ibkr.ib_connection import IBConnection
 from core.data.tsla_ingestion import TslaIngestion
 from core.data.aapl_ingestion import AaplIngestion
 from core.data.historical_ingestion import run_blocking_ingestion
+from core.strategy.stage_analyzer import StageAnalyzer
 from core.monitor.dashboard import Dashboard
 from core.config.loader import Config
 from core.logging.logger import get_logger
@@ -51,8 +52,11 @@ def main():
     # Config Historical Data
     hist_cfg = cfg["historical_data"]
 
-    # shared registry for dashboard
+    # Shared registry for dashboard
     snapshot_registry = {}
+
+    # Shared registry for Stage Analysis results
+    stage_registry = {}
 
     # dashboard
     dashboard = Dashboard(snapshot_registry, refresh_sec=1)
@@ -89,7 +93,28 @@ def main():
             return 
     
     logger.info("=== BLOCKING INIT COMPLETE. Proceeding to Realtime Loop. ===")
+
     # ------------------------------------
+    # Run Stage Analyzer
+    # ------------------------------------
+    logger.info("=== STAGE ANALYSIS: Calculating 30WMA and Stages ===")
+
+    for sym in symbols:
+        analyzer = StageAnalyzer(sym)
+        analysis = analyzer.get_analysis_summary()
+
+        if not analysis.get("error"):
+            stage_registry[sym] = analysis
+            logger.info(f"[{sym}] Current Stage: {analysis['current_stage']} | 30WMA: {analysis['current_wma']}")
+
+        else:
+            logger.error(f"[{sym}] Stage Analysis failed. Cannot proceed.")
+            # We can choose to stop here or just skip the symbol. Let's stop.
+            ib_conn.stop()
+            return
+
+    logger.info("=== STAGE ANALYSIS COMPLETE. Building Ingestion Pipeline. ===")
+
 
     # ------------------------------------
     # Build ingestion pipeline (Realtime)
