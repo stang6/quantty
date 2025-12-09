@@ -61,6 +61,17 @@ def main():
     # IB connection
     ib_conn = IBConnection(host=host, port=port, client_id=client_id)
     logger.info("[MAIN] IB connection object created.")
+
+    # ------------------------------------
+    # ib connect manually
+    # ------------------------------------
+    logger.info("[MAIN] Attempting initial connection (BLOCKING)...")
+    
+    ib_conn.connect_blocking()
+
+    if not ib_conn.ib.isConnected():
+        logger.error("[MAIN] Fatal error: Could not establish initial IB connection. Exiting.")
+        return # quit if failed to connect
     
     # ------------------------------------
     # Blocking Initialization For Historical Data

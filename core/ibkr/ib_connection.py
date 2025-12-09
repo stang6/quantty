@@ -47,7 +47,10 @@ class IBConnection:
         self._register_signal_handlers()
 
         # Connect synchronously
-        self._connect_blocking()
+        #self._connect_blocking() --> move to main.py
+        if not self.ib.isConnected():
+            logger.error("[IB] Start called without an established connection. Exiting.")
+            return
 
         # Start heartbeat monitor
         self._hb_thread.start()
@@ -86,7 +89,8 @@ class IBConnection:
     # ---------------------------------------------------------
     # Internal logic: connect + reconnect
     # ---------------------------------------------------------
-    def _connect_blocking(self):
+    #def _connect_blocking(self):
+    def connect_blocking(self):
         try:
             logger.info(f"[IB] Connecting to {self.host}:{self.port} (clientId={self.client_id})")
             self.ib.connect(self.host, self.port, clientId=self.client_id)
