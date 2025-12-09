@@ -1,3 +1,4 @@
+#config/config.yaml
 ib:
   host: "127.0.0.1"
   port: 4002
@@ -7,6 +8,11 @@ ingestion:
   symbols:
     - TSLA
     - AAPL
-  poll_interval: 1
+  poll_interval: 1 #1 second polling
   output_dir: "data"
 
+historical_data:
+  duration: '3 Y'          # Stan Weinstein
+  bar_size: '1 week'       # Weekly
+  what_to_show: 'TRADES'
+  use_rth: False

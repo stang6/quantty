@@ -1,8 +1,13 @@
+#core/ibkr/ib_connection.py
 import threading
 import time
 import signal
+import logging
 from ib_insync import IB
 from core.logging.logger import get_logger
+
+# set ib_insync as DEBUG level
+logging.getLogger('ib_insync').setLevel(logging.DEBUG)
 
 logger = get_logger("IB")
 

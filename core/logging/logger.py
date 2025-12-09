@@ -10,7 +10,8 @@ def get_logger(name: str):
     """
 
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    #logger.setLevel(logging.INFO)      #INFO level
+    logger.setLevel(logging.DEBUG)      #DEBUG level
 
     # Avoid adding handlers multiple times (crucial!)
     if logger.handlers:
@@ -23,11 +24,13 @@ def get_logger(name: str):
     # File handler: log/{name}.log
     file_path = log_dir / f"{name.lower()}.log"
     fh = logging.FileHandler(file_path)
-    fh.setLevel(logging.INFO)
+    #fh.setLevel(logging.INFO)
+    fh.setLevel(logging.DEBUG)
 
     # Console handler
     ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
+    #ch.setLevel(logging.INFO)
+    ch.setLevel(logging.DEBUG)
 
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
