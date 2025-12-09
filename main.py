@@ -130,6 +130,7 @@ def main():
                 poll_interval_sec=poll_interval,
                 output_path=out_path,
                 snapshot_registry=snapshot_registry,
+                wma_price=current_wma,
             )
         elif sym == "AAPL":
             ing = AaplIngestion(
@@ -137,6 +138,7 @@ def main():
                 poll_interval_sec=poll_interval,
                 output_path=out_path,
                 snapshot_registry=snapshot_registry,
+                wma_price=current_wma,
             )
         else:
             logger.warning(f"[MAIN] Unsupported symbol '{sym}', skipped.")

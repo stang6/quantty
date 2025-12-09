@@ -12,9 +12,10 @@ class IngestionBase(ABC):
     - write_snapshot()
     """
 
-    def __init__(self, poll_interval_sec: int = 5):
+    def __init__(self, poll_interval_sec: int = 5, wma_price: float = 0.0):
         self.poll_interval_sec = poll_interval_sec
         self._next_run_ts = time.time()
+        self.wma_price = wma_price
 
     def run_step(self) -> None:
         """
