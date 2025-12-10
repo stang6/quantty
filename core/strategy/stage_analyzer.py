@@ -7,14 +7,19 @@ from core.logging.logger import get_logger
 
 # Constants
 WMA_PERIOD = 30
-FILE_PATH_TEMPLATE = "historical_data/{symbol}_1week_3Y.csv"
 
-logger = get_logger("STGANA") # Stage Analyzer
+# NOTE: This path is currently hardcoded to match the existing file structure. 
+# We assume the data ingestion module saves data here.
+FILE_PATH_TEMPLATE = "historical_data/{symbol}_1week_3Y.csv" 
+
+# Stage Analyzer
+logger = get_logger("STGANA")
 
 class StageAnalyzer:
     """
     Implements Stan Weinstein's Stage Analysis logic.
     Calculates the 30-Week Moving Average (30-WMA) and determines the current stage.
+    Also calculates average volume and provides necessary data for filtering.
     """
     def __init__(self, symbol: str):
         self.symbol = symbol
@@ -25,12 +30,18 @@ class StageAnalyzer:
         self.wma_slope_trend = "UNKNOWN"
         self.current_wma = None
         
+        # --- NEW/MODIFIED ATTRIBUTES FOR SCANNING ---
+        self.avg_volume = 0.0 # Average weekly volume (last 52 weeks)
+        self.last_close = 0.0 # Last closing price
         # Attribute to store detailed analysis (used for transition check)
         self.stage_history: Dict[str, Any] = {"recent_stages": []} 
+        # -------------------------------------------
 
         if not self.data.empty:
+            self.last_close = self.data['close'].iloc[-1] # Get last close immediately
             self._calculate_wma()
             self._analyze_stage()
+            self._calculate_avg_volume() # Calculate average volume
 
     def _load_data(self) -> pd.DataFrame:
         """Loads historical weekly data from CSV."""
@@ -78,96 +89,63 @@ class StageAnalyzer:
             logger.warning(f"[{self.symbol}] Not enough data to calculate WMA or slope.")
 
 
+    def _calculate_avg_volume(self):
+        """Calculates the 52-week simple average of trading volume."""
+        # Use the last 52 weeks of data
+        volume_series = self.data['volume'].tail(52) 
+        if not volume_series.empty:
+            self.avg_volume = volume_series.mean()
+        else:
+            self.avg_volume = 0.0
+
+
     def _analyze_stage(self):
-        """
-        Determines the current market stage based on Weinstein's rules.
-        For MVP, this only determines the stage of the last bar.
-        """
+        """Determines the current market stage based on Weinstein's rules."""
         if self.data.empty or self.current_wma is None:
             self.current_stage = "ERROR"
             return
-        
-        # We need a dedicated function to classify a single bar's stage
-        def classify_bar_stage(close_price, wma_value, wma_slope):
-            if close_price > wma_value:
-                if wma_slope == "UP":
-                    return "STAGE 2 (Uptrend)"
-                elif wma_slope == "FLAT":
-                    return "STAGE 1 (Accumulation/Breakout)"
-                else: # WMA is DOWN
-                    return "STAGE 1 (Accumulation/Transition)"
-            else: # close_price <= wma_value
-                if wma_slope == "DOWN":
-                    return "STAGE 4 (Downtrend)"
-                elif wma_slope == "FLAT":
-                    return "STAGE 3 (Distribution/Breakdown)"
-                else: # WMA is UP
-                    return "STAGE 3 (Distribution/Transition)"
-        
-        # Determine current stage (last bar)
-        last_close = self.data['close'].iloc[-1]
-        
-        # Determine current stage based on last bar and calculated slope/WMA
-        self.current_stage = classify_bar_stage(last_close, self.current_wma, self.wma_slope_trend)
+
+        # Last closing price is already stored in self.last_close
+
+        # 1. Price is Above WMA
+        if self.last_close > self.current_wma:
+            if self.wma_slope_trend == "UP":
+                self.current_stage = "STAGE 2 (Uptrend)"
+            elif self.wma_slope_trend == "FLAT":
+                self.current_stage = "STAGE 1 (Accumulation/Breakout)"
+            else: # WMA is DOWN
+                self.current_stage = "STAGE 1 (Accumulation/Transition)"
+
+        # 2. Price is Below WMA
+        else: # last_close <= self.current_wma
+            if self.wma_slope_trend == "DOWN":
+                self.current_stage = "STAGE 4 (Downtrend)"
+            elif self.wma_slope_trend == "FLAT":
+                self.current_stage = "STAGE 3 (Distribution/Breakdown)"
+            else: # WMA is UP
+                self.current_stage = "STAGE 3 (Distribution/Transition)"
 
         logger.info(f"[{self.symbol}] Determined Stage: {self.current_stage}")
 
     def get_analysis_summary(self) -> Dict:
-        """
-        Returns the current analysis summary and checks for Stage 1 -> Stage 2 breakout.
-        NOTE: Stage transition check is mocked for MVP and relies on the test override for verification.
-        """
+        """Returns the current analysis summary including all analysis data."""
         if self.data.empty or self.current_wma is None:
             return {
                 "symbol": self.symbol,
                 "error": True,
                 "message": "Data not loaded/analyzed."
             }
-        
-        current_stage = self.current_stage
-        buy_signal = False
-        
-        # Dummy structure for transition check.
-        details: Dict[str, Any] = {"recent_stages": []} 
-        
-        # --- TEST OVERRIDE START (20251210 - For Stage 1 Breakout Test Only) ---
-        # Temporarily force a Stage 1 -> Stage 2 transition for testing buy signal logic for NVDA.
-        ##if self.symbol == "NVDA":
-        ##    logger.critical("NVDA STAGE OVERRIDE: Forcing Stage 1 -> Stage 2 transition for test.")
-        ##    current_stage = "STAGE 2 (Uptrend)"
-            # Simulate that the previous bar was Stage 1
-        ##    details['recent_stages'] = [
-        ##        {'date': 'Previous_Week', 'stage': 'STAGE 1 (Consolidation)'},
-        ##        {'date': 'Current_Week', 'stage': current_stage}
-        ##    ]
-        # --- TEST OVERRIDE END ---
-        
-        
-        # --- STAGE 1 BREAKOUT CHECK (PERMANENT LOGIC) ---
-        # Check for Stage 1 to Stage 2 transition:
-        # 1. Current stage must be Stage 2 (uptrend breakout).
-        # 2. We check if the historical analysis (details) shows the immediate previous stage was Stage 1.
-        if current_stage == "STAGE 2 (Uptrend)" and len(details['recent_stages']) > 1:
-            # Check the second-to-last bar's stage
-            previous_stage = details['recent_stages'][-2]['stage']
-            
-            if "STAGE 1" in previous_stage:
-                buy_signal = True
-                logger.critical(
-                    "STAGE BREAKOUT BUY SIGNAL: [%s] Transitioned from Stage 1 to Stage 2! Buy Signal Triggered.",
-                    self.symbol
-                )
-        # --- END PERMANENT LOGIC ---
-
 
         return {
             "symbol": self.symbol,
-            "last_close": self.data['close'].iloc[-1].round(2),
+            "last_close": self.last_close.round(2), 
             "wma_period": self.wma_period,
             "current_wma": round(self.current_wma, 2) if self.current_wma is not None else 'N/A',
             "wma_slope_trend": self.wma_slope_trend,
-            "current_stage": current_stage,
-            "price_vs_wma": "ABOVE" if self.data['close'].iloc[-1] > self.current_wma else "BELOW/AT",
-            "stage1_to_stage2_breakout": buy_signal,
+            "current_stage": self.current_stage,
+            "price_vs_wma": "ABOVE" if self.last_close > self.current_wma else "BELOW/AT",
+            "stage1_to_stage2_breakout": False, # Placeholder for StanStrategy check
+            "avg_volume": self.avg_volume, 
+            "data_points": len(self.data), 
             "error": False,
         }
