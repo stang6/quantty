@@ -124,6 +124,9 @@ def main():
     for sym in symbols:
         out_path = f"{output_dir}/{sym.lower()}_realtime_ticks.csv"
 
+        # Get WMA price from registry
+        current_wma = stage_registry[sym]['current_wma']
+
         if sym == "TSLA":
             ing = TslaIngestion(
                 ib=ib_conn.ib,

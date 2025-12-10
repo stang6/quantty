@@ -11,8 +11,8 @@ logger = get_logger("TSLA")
 
 
 class TslaIngestion(IngestionBase):
-    def __init__(self, ib, poll_interval_sec=5, output_path="data/tsla_realtime_ticks.csv", snapshot_registry=None):
-        super().__init__(poll_interval_sec)
+    def __init__(self, ib, poll_interval_sec=5, output_path="data/tsla_realtime_ticks.csv", snapshot_registry=None, wma_price: float = 0.0):
+        super().__init__(poll_interval_sec, wma_price)
         self.ib = ib
         self.writer = CSVWriter(output_path)
         self._ticker = None
