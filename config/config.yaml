@@ -6,6 +6,7 @@ ib:
 
 ingestion:
   symbols:
+    - NVDA
     - TSLA
     - AAPL
   poll_interval: 1 #1 second polling
