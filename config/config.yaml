@@ -1,19 +1,36 @@
-#config/config.yaml
+# config/config.yaml
+
 ib:
-  host: "127.0.0.1"
-  port: 4002
-  client_id: 1
+  host: "127.0.0.1"   ###### NAT localhost ######
+  port: 4002          ###### paper trading ######
+  client_id: 1        ###### robot is 1    ######
 
+logging:
+  level: INFO # Recommended level for production runs
+  
 ingestion:
-  symbols:
-    - NVDA
-    - TSLA
-    - AAPL
-  poll_interval: 1 #1 second polling
+  poll_interval: 1 # Realtime data polling interval (seconds)
   output_dir: "data"
+  historical_data_dir: "historical_data" # Directory for historical CSV files
 
+# --- Historical Data Configuration (Remains here as core setting) ---
 historical_data:
-  duration: '3 Y'          # Stan Weinstein
-  bar_size: '1 week'       # Weekly
+  duration: '3 Y'           # Stan Weinstein requires long history
+  bar_size: '1 week'        # Weekly data for stage analysis
   what_to_show: 'TRADES'
   use_rth: False
+
+# --- Capital Allocation and Strategy Configuration ---
+portfolio:
+  total_capital: 220000.00 # Total capital pool: $220,000 USD
+  
+  strategies:
+    # 1. Stan Strategy (Long-Term/Trend) - Relies on Stage 1 candidates
+    StanStrategy:
+      enabled: true
+      capital_allocation: 200000.00
+      
+    # 2. Fujimoto Strategy (Short-Term/Swing) - Relies on Stage 2 candidates
+    FujimotoStrategy:
+      enabled: true
+      capital_allocation: 20000.00

@@ -1,0 +1,33 @@
+# config/scan_universe.yaml
+
+# ------------------------------------------------------------------
+# 1. UNIVERSE DEFINITION: The list of all symbols to be scanned
+# ------------------------------------------------------------------
+symbols:
+  - NVDA
+  - TSLA
+  - AAPL
+  - AMZN
+  # - ... (Add all symbols you wish to scan here)
+
+
+# ------------------------------------------------------------------
+# 2. HYGIENE & LIQUIDITY FILTERS: Data integrity and volume thresholds
+# ------------------------------------------------------------------
+filters:
+  # Price Filter: Stocks below this price are skipped (to exclude penny stocks)
+  min_price: 5.0
+  
+  # Liquidity Filter: Average weekly volume must be higher than this threshold (last 52 weeks)
+  min_avg_weekly_volume: 500000 
+  
+  # Data Integrity Check: Minimum number of historical data points required 
+  # (30 WMA + 52 weeks buffer = 82 bars minimum)
+  min_data_points: 82 
+
+# ------------------------------------------------------------------
+# 3. FUNDAMENTAL FILTER: Placeholder for future API integration
+# ------------------------------------------------------------------
+fundamental_check:
+  enabled: false # Set to true to mock-enable fundamental checks
+
