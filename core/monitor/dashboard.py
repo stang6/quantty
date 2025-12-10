@@ -24,6 +24,7 @@ class Dashboard:
             ("Bid", 10),
             ("Ask", 10),
             ("Last", 10),
+            ("30WMA", 10),
             ("Volume", 12),
             ("Updated (UTC)", 24),
         ]
@@ -57,13 +58,15 @@ class Dashboard:
             "ask": float,
             "last": float,
             "volume": int,
-            "ts": "2025-12-05T..."
+            "ts": "2025-12-05T...",
+            "wma": float
         }
         """
         if snap is None:
             # not ready
             print(
                 symbol.ljust(8)
+                + "n/a".ljust(10)
                 + "n/a".ljust(10)
                 + "n/a".ljust(10)
                 + "n/a".ljust(10)
@@ -77,12 +80,17 @@ class Dashboard:
         last = f"{snap['last']:.2f}"
         vol = str(snap["volume"])
         ts = snap["ts"]
+        
+        # Get WMA value, defaulting to N/A if missing
+        wma_val = snap.get("wma", 0.0)
+        wma_text = f"{wma_val:.2f}" if wma_val > 0 else "n/a"
 
         row = (
             symbol.ljust(8)
             + bid.ljust(10)
             + ask.ljust(10)
             + last.ljust(10)
+            + wma_text.ljust(10) 
             + vol.ljust(12)
             + ts.ljust(24)
         )
@@ -112,5 +120,3 @@ class Dashboard:
             self._render_row(symbol, snap)
 
         print("\n(Press Ctrl+C to stop)")
-
-

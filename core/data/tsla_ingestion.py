@@ -61,6 +61,7 @@ class TslaIngestion(IngestionBase):
                     "last": last,
                     "volume": volume,
                     "ts": ts,
+                    "wma": self.wma_price,
                 }
 
             logger.debug(
