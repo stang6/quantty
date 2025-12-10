@@ -22,6 +22,15 @@ class RealtimeIngestion(IngestionBase):
         
         # IngestionBase.__init__ handles poll_interval_sec and wma_price
         super().__init__(poll_interval_sec, wma_price) 
+
+        # 20251210 - 13:33 just for testing
+        # --- TEST OVERRIDE START: Temporarily set a high WMA for TSLA to force a sell alert ---
+        ##if symbol == "TSLA":
+            # Assuming TSLA current price is around 180-200. Setting WMA higher forces last < wma.
+        ##    self.wma_price = 500.0
+        ##    MODULE_LOGGER.critical("TSLA WMA OVERRIDE: Set to 500.0 to trigger Stage 2 Sell Signal for testing.")
+        # --- TEST OVERRIDE END ---
+        # 20251210 - 13:33 just for testing
         
         self.ib = ib
         self.symbol = symbol

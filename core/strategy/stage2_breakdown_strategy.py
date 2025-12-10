@@ -31,8 +31,13 @@ class Stage2BreakdownStrategy(StrategyBase):
 
         last_price = snapshot.get("last", 0.0)
 
-        if last_price > 0.0 and last_price < self.wma_price:
+        # Retrieve the WMA value from snapshot_registry, which may be the overridden test value
+        wma_to_check = snapshot.get("wma", 0.0)
+
+        # Core Stage 2 breakdown alert logic
+        if last_price > 0.0 and wma_to_check > 0.0 and last_price < wma_to_check:
+        #if last_price > 0.0 and last_price < self.wma_price:
             logger.critical(
-                "CRITICAL STAGE BREAKDOWN: [%s] Last Price (%.2f) is BELOW 30-WMA (%.2f)! Stage 2 Sell Signal.", 
-                self.symbol, last_price, self.wma_price
+                "CRITICAL STAGE BREAKDOWN: [%s] Last Price (%.2f) is BELOW 30-WMA (%.2f)! Stage 2 Sell Signal.",
+                self.symbol, last_price, wma_to_check # <--- Use wma_to_check for the log message
             )
