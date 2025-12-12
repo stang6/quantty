@@ -41,11 +41,9 @@ def allocate_symbols_to_strategies(cfg: Dict[str, Any], candidates: Dict[str, Di
     """
     Filters the market scan candidates and allocates symbols to active strategies
     based on their required market stage.
-    
     Args:
         cfg: The main configuration dictionary.
         candidates: Dictionary of symbols and their StageAnalysis summaries (passed hygiene/liquidity).
-        
     Returns:
         A tuple: (allocation_map, unique_symbols_to_monitor)
     """
@@ -75,7 +73,7 @@ def allocate_symbols_to_strategies(cfg: Dict[str, Any], candidates: Dict[str, Di
         allocated_symbols = []
         for symbol, summary in candidates.items():
             current_stage = summary['current_stage']
-            
+         
             # Check if the symbol's stage matches the strategy's requirement
             if any(stage_prefix in current_stage for stage_prefix in required_stages):
                 allocated_symbols.append(symbol)
@@ -113,8 +111,12 @@ def main():
     # NOTE: Before scanning, you should run data ingestion 
     # to ensure all symbols in the universe have up-to-date historical data.
     # We will assume historical data download is handled separately or is currently skipped
-    # for this architectural step. (run_blocking_ingestion is commented out for now)
+    # for this architectural step.
     # run_blocking_ingestion(conn, cfg) 
+    
+    # --- IMPORTANT: Connect before scanning to ensure IB is ready to fetch data ---
+    conn.connect_blocking() 
+    # -----------------------------------------------------------------------------
     
     scanner = MarketScanner()
     # passed_candidates: Dict[symbol: summary]
@@ -125,11 +127,32 @@ def main():
     
     if not symbols_to_monitor:
         logger.critical("[MAIN] No symbols passed the market scan and allocation process. Shutting down.")
-        conn.disconnect()
+        conn.stop() # Use stop() for full cleanup
         return
         
     # 6. Initialize Realtime Ingestion and Dashboard
-    dashboard = Dashboard()
+    snapshot_registry = {} # Initialize empty registry
+
+    # NEW STEP: Pre-populate registry with static analysis data (e.g., WMA)
+    # This ensures the dashboard and strategies have initial WMA/Stage data.
+    for symbol in symbols_to_monitor:
+        summary = passed_candidates.get(symbol, {})
+        wma_val = summary.get('current_wma')
+        current_stage = summary.get('current_stage')
+        
+        # FIX for KeyError: 'bid'. Initialize the snapshot with ALL keys required by the dashboard,
+        # using WMA/Stage data if available, and placeholders for real-time data.
+        snapshot_registry[symbol] = {
+            'bid': 0.0,             # Placeholder for real-time bid price
+            'ask': 0.0,             # Placeholder for real-time ask price
+            'last': 0.0,            # Placeholder for real-time last price
+            'volume': 0,            # Placeholder for real-time volume
+            'ts': 'N/A',            # Placeholder timestamp
+            'wma': round(wma_val, 2) if wma_val is not None else 0.0, # Static analysis data
+            'current_stage': current_stage if current_stage is not None else 'UNKNOWN', # Static analysis data
+        }
+        
+    dashboard = Dashboard(snapshot_registry)
     
     # Initialize Realtime Ingestion with the combined list of symbols to monitor
     ingestion = RealtimeIngestion(
@@ -148,7 +171,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("[MAIN] Shutting down Quantty via KeyboardInterrupt.")
     finally:
-        conn.disconnect()
+        conn.stop() # Use conn.stop() for graceful shutdown
         logger.info("[MAIN] Disconnected from IB Gateway/TWS.")
 
 

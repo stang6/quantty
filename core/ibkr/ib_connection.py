@@ -21,6 +21,9 @@ class IBConnection:
         self.ib = IB()
         self.connected = False
 
+        # New: Store the loop interval (default to 1 second)
+        self._interval = 1 
+        
         # Flags
         self._stop = False
         self._schedule_reconnect = False
@@ -36,11 +39,18 @@ class IBConnection:
     # ---------------------------------------------------------
     # Public API
     # ---------------------------------------------------------
-    def start(self, loop_hook=None):
+    # FIX: Add 'interval' as an accepted keyword argument
+    def start(self, loop_hook=None, interval=1):
         """
         Start IB connection and main event loop.
+        
+        Args:
+            loop_hook: Function to execute at each loop iteration.
+            interval: Time in seconds to sleep between iterations (passed to ib.sleep).
         """
         self._loop_hook = loop_hook
+        # New: Store the interval for _main_loop to use
+        self._interval = interval
         logger.info("[IB] Starting core IB connection...")
 
         # Register OS shutdown signals
@@ -144,7 +154,7 @@ class IBConnection:
                     pass
 
                 time.sleep(1)
-                self._connect_blocking()
+                self.connect_blocking()
 
             # User-defined hook (ingestors / strategies)
             if self._loop_hook:
@@ -155,11 +165,11 @@ class IBConnection:
 
             # Required for IB API event loop
             try:
-                self.ib.sleep(1)
+                # FIX: Use the stored interval instead of hardcoding '1'
+                self.ib.sleep(self._interval) 
             except Exception as e:
                 logger.error("[IB] Main-loop exception: %s", e)
                 self.connected = False
                 self._attempt_reconnect()
 
         logger.info("[IB] Main loop exit.")
-

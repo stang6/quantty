@@ -1,7 +1,8 @@
-# core/data/realtime_ingestion.py (HEAVILY REFACTORED)
+# core/data/realtime_ingestion.py (FINAL FIXED VERSION with Data Integration Logic)
 import time
 from typing import List, Dict, Any, TYPE_CHECKING
 import logging
+from datetime import datetime, timezone # Added for timestamping
 
 # Required for contract creation
 from core.ibkr.contract_factory import ContractFactory 
@@ -34,7 +35,8 @@ class RealtimeIngestion:
         
         self.contract_factory = ContractFactory()
         self.ib_app = conn.ib # Low-level IB application instance
-        self.req_id_map: Dict[str, int] = {} # Map symbol to IB reqId
+        # req_id_map is kept but not strictly necessary since we let ib_insync manage IDs
+        self.req_id_map: Dict[str, int] = {} 
         
         # 20251210 - 13:33 just for testing
         # --- TEST OVERRIDE START: Temporarily set a high WMA for TSLA to force a sell alert ---
@@ -68,7 +70,7 @@ class RealtimeIngestion:
             if name == "StanStrategy":
                 # StanStrategy (e.g., Stage 1/2): Long-term trend following
                 # We defer StanStrategy implementation for now, but log the allocation
-                logger.info(f"[{name}] Found {len(symbols)} symbols. Strategy instance creation deferred.")
+                logger.info(f"[{name}] Found 1 symbols. Strategy instance creation deferred.")
                 
             elif name == "FujimotoStrategy":
                 # FujimotoStrategy (e.g., Stage 2): Short-term swing/breakdown
@@ -85,35 +87,76 @@ class RealtimeIngestion:
 
 
     def _request_market_data(self):
-        """Requests real-time market data for all unique symbols."""
+        """
+        Requests real-time market data for all unique symbols.
+        Relies on ib_insync to automatically manage Request IDs (reqId).
+        """
         if not self.ib_app.isConnected():
              logger.warning("[RTINGEST] Cannot request market data: IB connection not active.")
              return
              
-        current_req_id = self.ib_app.nextValidId # Get the next available ID
-        
+        # FIX: The simplest way is the best way. Let IB/ib_insync manage IDs.
         for symbol in self.symbols:
             contract = self.contract_factory.create_stock_contract(symbol, "SMART")
-            req_id = current_req_id
-            self.req_id_map[symbol] = req_id
             
-            # Request market data (snapshot=False for streaming data)
-            self.ib_app.reqMktData(reqId=req_id, contract=contract, genericTickList="", 
+            # Request market data, letting ib_insync assign the reqId.
+            self.ib_app.reqMktData(contract=contract, genericTickList="", 
                                    snapshot=False, regulatorySnapshot=False, mktDataOptions=[])
             
-            logger.info(f"[{symbol}] Requested market data with reqId {req_id}.")
+            logger.info(f"[{symbol}] Requested market data.")
+
+
+    def _process_market_data(self):
+        """
+        Retrieves the latest Ticker objects from ib_insync and updates the local snapshot registry.
+        """
+        # Get all actively monitored Tickers from ib_insync's internal list
+        active_tickers = self.ib_app.tickers()
+        
+        current_time_utc = datetime.now(timezone.utc).isoformat(timespec='seconds')
+        
+        for ticker in active_tickers:
+            symbol = ticker.contract.symbol
             
-            current_req_id += 1 
+            # Check if we are monitoring this symbol
+            if symbol in self.dashboard.snapshot_registry:
+                # Retrieve the existing snapshot (contains WMA/Stage)
+                snap = self.dashboard.snapshot_registry[symbol]
+                
+                # We only update if the ticker has received a valid bid/ask/last price,
+                # indicated by a non-empty time field (time/bidGmt/askGmt).
+                # Checking for ticker.time (last trade time) is often sufficient.
+                if not ticker.time:
+                    # If ticker has no data, skip updating (keep the current state, e.g., '0.00' from init)
+                    continue
 
-        self.ib_app.nextValidId = current_req_id # Update the internal ID tracker
+                # --- Update real-time price fields ---
+                # Use 'last' price if available, otherwise use mid-point or bid/ask
+                last_price = ticker.last if ticker.last is not None else 0.0
+                
+                # Update the snapshot dictionary with live data
+                snap.update({
+                    # IB's Ticker attributes are Bid/Ask/Last
+                    'bid': ticker.bid if ticker.bid is not None and ticker.bid > 0 else 0.0,
+                    'ask': ticker.ask if ticker.ask is not None and ticker.ask > 0 else 0.0,
+                    'last': last_price,
+                    'volume': ticker.volume if ticker.volume is not None else 0,
+                    # We use the current system time for update, as Ticker.time might be sparse
+                    'ts': current_time_utc,
+                })
+                
+                # Optional: Log a message when data first starts flowing (or every few updates)
+                if last_price > 0.0 and snap.get('last') == 0.0:
+                    logger.info(f"[{symbol}] Starting real-time data flow.")
 
-    
+
     def run_step(self):
         """
         The main hook logic executed periodically by the IB event loop.
         Handles data processing, strategy execution, and dashboard rendering.
         """
-        # 1. Data is implicitly updated in the IB client's handlers which populates self.dashboard.snapshot_registry
+        # 1. Data Processing: Explicitly pull data from IB Tickers and populate the registry
+        self._process_market_data()
         
         # 2. Strategy Execution
         self.strategy_manager.run_all_strategies()

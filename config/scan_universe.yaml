@@ -4,10 +4,7 @@
 # 1. UNIVERSE DEFINITION: The list of all symbols to be scanned
 # ------------------------------------------------------------------
 symbols:
-  - NVDA
   - TSLA
-  - AAPL
-  - AMZN
   # - ... (Add all symbols you wish to scan here)
 
 
